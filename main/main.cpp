@@ -16,6 +16,7 @@
 #include "INA238.hpp"
 #include "LSM6DSO.hpp"
 #include "AS5047P.hpp"
+#include "DRV8323.hpp"
 #include "SdCard.hpp"
 #include "W5500.hpp"
 #include "MCPWMDriver.hpp"
@@ -43,15 +44,24 @@ static void adc_sampling_task(void *arg) {
     int r0, r1, r2;
     uint32_t skip = 0;
 
+    gpio_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_NUM_1, 0);
+
     while (1) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);   // block until PWM peak
-        if (++skip < 3) continue;                   // skip 2 of 3 → 10 kHz @ 30 kHz PWM
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        gpio_set_level(GPIO_NUM_1, 1);
+        if (++skip < 3) {
+            gpio_set_level(GPIO_NUM_1, 0);
+            continue;
+        }
         skip = 0;
 
+        
         adc->read_raw(ADCOneshot::CHANNEL_A, r0);
         adc->read_raw(ADCOneshot::CHANNEL_B, r1);
         adc->read_raw(ADCOneshot::CHANNEL_C, r2);
         s_adc.raw[0] = r0; s_adc.raw[1] = r1; s_adc.raw[2] = r2;
+        gpio_set_level(GPIO_NUM_1, 0);
         // TODO: signal FOC task that new ADC sample is ready
     }
 }
@@ -125,9 +135,18 @@ extern "C" void app_main(void) {
     ina.calibrate(INA238_SHUNT_OHM, INA238_MAX_CURRENT_A);
     ESP_ERROR_CHECK(lsm.init());
 
-    // DRV8323 enable (B3 / pin 11) — pulled low since driver needs 6V and is not populated
+    mcp.pin_mode(MCP_PIN_A0, true);
+    mcp.pin_mode(MCP_PIN_A3, false);
+
+    mcp.pin_mode(DRV8323_INLA, true);
+    mcp.pin_mode(DRV8323_INLB, true);
+    mcp.pin_mode(DRV8323_INLC, true);
+    mcp.digital_write(DRV8323_INLA, false);
+    mcp.digital_write(DRV8323_INLB, false);
+    mcp.digital_write(DRV8323_INLC, false);
+
     mcp.pin_mode(DRV8323_ENABLE, true);
-    mcp.digital_write(DRV8323_ENABLE, false);
+    mcp.digital_write(DRV8323_ENABLE, true);
 
     // --- SPI Bus 0: encoder ---
     gpio_set_level(DRV8323_CS, 1);
@@ -138,6 +157,10 @@ extern "C" void app_main(void) {
 
     AS5047P enc(spi0, AS5047P_CS);
     ESP_ERROR_CHECK(enc.init());
+
+    DRV8323 drv(spi0, DRV8323_CS);
+    ESP_ERROR_CHECK(drv.init());
+    drv.set_3x_pwm_mode();
 
     // --- SPI Bus 1: SD card + 2x W5500 ---
     gpio_set_level(W5500_0_CS, 1);
@@ -183,7 +206,7 @@ extern "C" void app_main(void) {
             printf("W5500[%d] cannot get interface name\n", idx);
             return false;
         }
-        for (int i = 0; i < 120; i++) {
+        for (int i = 0; i < 20; i++) {
             struct netif *n = netif_find(ifname);
             if (n && netif_is_link_up(n)) {
                 printf("W5500[%d] link UP (if=%s)\n", idx, ifname);
@@ -240,6 +263,10 @@ extern "C" void app_main(void) {
     float ax, ay, az, gx, gy, gz, lsm_temp, angle;
 
     while (1) {
+        bool switchSignal = false;
+        mcp.digital_read(MCP_PIN_A3, switchSignal);
+        mcp.digital_write(MCP_PIN_A0, switchSignal);
+
         // Example: ramp duty on all 3 phases from 0% to 50%
         static float duty = 0.0f;
         static int dir = 1;
@@ -283,8 +310,22 @@ extern "C" void app_main(void) {
             // printf("AS5047P: %.2f deg\n", angle);
         }
 
-        // printf("PWM duty: %.1f%% | ADC: raw(%d %d %d) mV(%.0f %.0f %.0f) A(%.3f %.3f %.3f)\n",
-        //        duty, r0, r1, r2, mv0, mv1, mv2, a0, a1, a2);
+        {
+            uint16_t drv_fault, drv_vgs;
+            if (drv.read_fault_status(drv_fault) == ESP_OK) {
+                if (drv.has_fault(drv_fault, DRV8323::FAULT_FLT)) {
+                    printf("DRV8323: FAULT=0x%04X\n", drv_fault);
+                }
+            }
+            if (drv.read_vgs_status(drv_vgs) == ESP_OK) {
+                if (drv_vgs) {
+                    printf("DRV8323: VGS=0x%04X\n", drv_vgs);
+                }
+            }
+        }
+
+        printf("PWM duty: %.1f%% | ADC: raw(%d %d %d) mV(%.0f %.0f %.0f) A(%.3f %.3f %.3f)\n",
+            duty, r0, r1, r2, mv0, mv1, mv2, a0, a1, a2);
 
         // FILE *f = fopen("/sdcard/test.txt", "a");
         // if (f) {
@@ -294,6 +335,6 @@ extern "C" void app_main(void) {
 
         // printf("---\n");
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

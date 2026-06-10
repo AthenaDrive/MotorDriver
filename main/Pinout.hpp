@@ -11,6 +11,15 @@
 // ============================================================
 // MCP23017 pin aliases (0-7 = PORTA, 8-15 = PORTB)
 // ============================================================
+#define MCP_PIN_A0      0
+#define MCP_PIN_A1      1
+#define MCP_PIN_A2      2
+#define MCP_PIN_A3      3
+#define MCP_PIN_A4      4
+#define MCP_PIN_A5      5
+#define MCP_PIN_A6      6
+#define MCP_PIN_A7      7
+
 #define MCP_PIN_B0      8
 #define MCP_PIN_B1      9
 #define MCP_PIN_B2      10
@@ -52,6 +61,10 @@
 #define DRV8323_INHA    GPIO_NUM_42
 #define DRV8323_INHB    GPIO_NUM_41
 #define DRV8323_INHC    GPIO_NUM_40
+
+#define DRV8323_INLA    MCP_PIN_A7
+#define DRV8323_INLB    MCP_PIN_A6
+#define DRV8323_INLC    MCP_PIN_A5
 
 // ============================================================
 // DRV8323 Control Pins (on MCP23017 Port B)
