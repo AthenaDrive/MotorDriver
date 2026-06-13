@@ -1,10 +1,12 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_event.h"
+#include "esp_timer.h"
 #include "esp_netif.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
@@ -23,6 +25,8 @@
 #include "ADCOneshot.hpp"
 #include "Pinout.hpp"
 #include "Config.hpp"
+
+float position;
 
 // Shared ADC sample — written by adc_sampling_task, read by main loop
 static volatile struct {
@@ -66,14 +70,16 @@ static void adc_sampling_task(void *arg) {
     }
 }
 
-static const uint16_t UDP_ECHO_PORT = 5000;
+static const char *UDP_DEST_IP = "192.168.0.17";
+static const uint16_t UDP_DEST_PORT = 5000;
 
-static void udp_echo_task(void *arg) {
+static void udp_send_task(void *arg) {
     const char *bind_ip = static_cast<const char *>(arg);
+
     struct sockaddr_in bind_addr = {};
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_addr.s_addr = inet_addr(bind_ip);
-    bind_addr.sin_port = htons(UDP_ECHO_PORT);
+    bind_addr.sin_port = 0;
 
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (sock < 0) {
@@ -81,37 +87,39 @@ static void udp_echo_task(void *arg) {
         vTaskDelete(nullptr);
     }
 
-    int en = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &en, sizeof(en));
+    bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
 
-    int err = bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
-    if (err < 0) {
-        printf("UDP[%s]: bind() errno=%d\n", bind_ip, errno);
-        close(sock);
-        vTaskDelete(nullptr);
-    }
+    struct sockaddr_in dest_addr = {};
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_addr.s_addr = inet_addr(UDP_DEST_IP);
+    dest_addr.sin_port = htons(UDP_DEST_PORT);
 
-    printf("UDP echo listening on %s:%d\n", bind_ip, UDP_ECHO_PORT);
+    printf("UDP sender %s -> %s:%d\n", bind_ip, UDP_DEST_IP, UDP_DEST_PORT);
 
-    struct sockaddr_in src;
-    socklen_t srclen = sizeof(src);
-    char buf[1500];
+    // Header ...00011
+    // => 2 values sent.
+
+    static uint32_t iteration = 0;
+    uint8_t packet[16];
+
+    uint32_t header = 0b111;
 
     while (1) {
-        srclen = sizeof(src);
-        int len = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&src, &srclen);
-        if (len < 0) {
-            printf("UDP[%s]: recvfrom() errno=%d\n", bind_ip, errno);
-            continue;
-        }
-        buf[len] = 0;
-        // printf("UDP[%s] %d bytes from %s:%d\n",
-        //        bind_ip, len, inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+        uint32_t iter = iteration++;
+        float pos = position;
+        auto time = esp_timer_get_time();
+        // printf("Sending: %li, %f.\n", iter, pos);
 
-        int sent = sendto(sock, buf, len, 0, (struct sockaddr *)&src, srclen);
+        memcpy(packet + 0, &header, 4);
+        memcpy(packet + 4, &iter, 4);
+        memcpy(packet + 8, &time, 4);
+        memcpy(packet + 12, &pos, 4);
+
+        int sent = sendto(sock, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if (sent < 0) {
             printf("UDP[%s]: sendto() errno=%d\n", bind_ip, errno);
         }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     close(sock);
@@ -240,9 +248,8 @@ extern "C" void app_main(void) {
         }
     }
 
-    // Start UDP echo server on each Ethernet port
-    xTaskCreate(udp_echo_task, "udp_eth0", 4096, (void *)W5500_0_IP, 12, nullptr);
-    xTaskCreate(udp_echo_task, "udp_eth1", 4096, (void *)W5500_1_IP, 12, nullptr);
+    // Start UDP sender on eth0 only
+    xTaskCreate(udp_send_task, "udp_eth0", 4096, (void *)W5500_0_IP, 12, nullptr);
 
     // --- ADC: phase current sensing (DRV8323 CSA outputs) ---
     ADCOneshot adc;
@@ -308,24 +315,25 @@ extern "C" void app_main(void) {
 
         if (enc.pipeline_read_angle(angle) == ESP_OK) {
             // printf("AS5047P: %.2f deg\n", angle);
+            position = angle;
         }
 
         {
             uint16_t drv_fault, drv_vgs;
             if (drv.read_fault_status(drv_fault) == ESP_OK) {
                 if (drv.has_fault(drv_fault, DRV8323::FAULT_FLT)) {
-                    printf("DRV8323: FAULT=0x%04X\n", drv_fault);
+                    // printf("DRV8323: FAULT=0x%04X\n", drv_fault);
                 }
             }
             if (drv.read_vgs_status(drv_vgs) == ESP_OK) {
                 if (drv_vgs) {
-                    printf("DRV8323: VGS=0x%04X\n", drv_vgs);
+                    // printf("DRV8323: VGS=0x%04X\n", drv_vgs);
                 }
             }
         }
 
-        printf("PWM duty: %.1f%% | ADC: raw(%d %d %d) mV(%.0f %.0f %.0f) A(%.3f %.3f %.3f)\n",
-            duty, r0, r1, r2, mv0, mv1, mv2, a0, a1, a2);
+        // printf("PWM duty: %.1f%% | ADC: raw(%d %d %d) mV(%.0f %.0f %.0f) A(%.3f %.3f %.3f)\n",
+        //     duty, r0, r1, r2, mv0, mv1, mv2, a0, a1, a2);
 
         // FILE *f = fopen("/sdcard/test.txt", "a");
         // if (f) {
