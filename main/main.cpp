@@ -119,11 +119,79 @@ static void udp_send_task(void *arg) {
         if (sent < 0) {
             printf("UDP[%s]: sendto() errno=%d\n", bind_ip, errno);
         }
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     close(sock);
     vTaskDelete(nullptr);
+}
+
+static void tcp_echo_task(void *arg) {
+    const char *bind_ip = static_cast<const char *>(arg);
+
+    struct sockaddr_in bind_addr = {};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = inet_addr(bind_ip);
+    bind_addr.sin_port = htons(TCP_LISTEN_PORT);
+
+    int listen_sock;
+    while (1) {
+        listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+        if (listen_sock < 0) {
+            printf("TCP[%s]: socket() errno=%d\n", bind_ip, errno);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        int opt = 1;
+        setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+        if (bind(listen_sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+            printf("TCP[%s]: bind() errno=%d\n", bind_ip, errno);
+            close(listen_sock);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        if (listen(listen_sock, 1) < 0) {
+            printf("TCP[%s]: listen() errno=%d\n", bind_ip, errno);
+            close(listen_sock);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        printf("TCP[%s] listening on port %d\n", bind_ip, TCP_LISTEN_PORT);
+
+        struct sockaddr_in client_addr = {};
+        socklen_t addr_len = sizeof(client_addr);
+        int client_sock = accept(listen_sock, (struct sockaddr *)&client_addr, &addr_len);
+        if (client_sock < 0) {
+            printf("TCP[%s]: accept() errno=%d\n", bind_ip, errno);
+            close(listen_sock);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        printf("TCP[%s] client connected\n", bind_ip);
+        close(listen_sock);
+
+        uint8_t buf[1024];
+        while (1) {
+            int len = recv(client_sock, buf, sizeof(buf), 0);
+            if (len <= 0) {
+                printf("TCP[%s]: client disconnected (len=%d errno=%d)\n", bind_ip, len, errno);
+                break;
+            }
+            int sent = send(client_sock, buf, len, 0);
+            if (sent < 0) {
+                printf("TCP[%s]: send() errno=%d\n", bind_ip, errno);
+                break;
+            }
+        }
+
+        close(client_sock);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 extern "C" void app_main(void) {
@@ -250,6 +318,9 @@ extern "C" void app_main(void) {
 
     // Start UDP sender on eth0 only
     xTaskCreate(udp_send_task, "udp_eth0", 4096, (void *)W5500_0_IP, 12, nullptr);
+
+    // Start TCP echo client on eth0 only
+    xTaskCreate(tcp_echo_task, "tcp_echo", 4096, (void *)W5500_0_IP, 12, nullptr);
 
     // --- ADC: phase current sensing (DRV8323 CSA outputs) ---
     ADCOneshot adc;
