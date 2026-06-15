@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 
 class PID_Reg {
 public:
