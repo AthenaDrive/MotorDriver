@@ -1,0 +1,45 @@
+# Variables
+uint32_t, numPolePairs, 20
+bool, wantedCalibrationMode, false
+bool, actualCalibrationMode, false
+float, angle, 0.0f
+float, velocity, 0.0f
+float, acceleration, 0.0f
+float, torque, 0.0f
+
+float, avgVelocity, 0.0f
+float, avgAcceleration, 0.0f
+float, avgTorque, 0.0f
+float, avgLoopTimeFOC, 0.0f
+
+uint32_t, voltage, 0
+uint32_t, drivingMode, 0
+uint32_t, currentLimitPhase, 1000
+uint32_t, currentLimitBus, 5000
+
+float, Ia, 0.0f
+float, Ib, 0.0f
+float, Ic, 0.0f
+
+float, torqueKp, 0.0f
+float, torqueKi, 0.0f
+float, torqueKd, 0.0f
+float, torqueSetpoint, 0.0f
+uint32_t, torqueControlFrequency, 1
+
+float, velocityKp, 0.0f
+float, velocityKi, 0.0f
+float, velocityKd, 0.0f
+float, velocitySetpoint, 0.0f
+uint32_t, velocityControlFrequency, 10
+
+float, positionKp, 0.0f
+float, positionKi, 0.0f
+float, positionKd, 0.0f
+float, positionSetpoint, 0.0f
+uint32_t, positionControlFrequency, 100
+
+# Consts
+float,       PI, 3.141592653589793f
+float,   TWO_PI, 6.283185307179586f
+float, PI_DIV_2, 1.570796326794897f
