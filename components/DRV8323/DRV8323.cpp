@@ -32,6 +32,8 @@ esp_err_t DRV8323::init() {
     dev_cfg.clock_speed_hz = _clock_speed_hz;
     dev_cfg.spics_io_num = _cs_gpio;
     dev_cfg.queue_size = 1;
+    dev_cfg.cs_ena_pretrans = 0;
+    dev_cfg.cs_ena_posttrans = 0;
 
     esp_err_t ret = _spi.add_device(&dev_cfg, &_dev);
     if (ret != ESP_OK) {
@@ -62,15 +64,14 @@ esp_err_t DRV8323::_spi_transfer(uint16_t tx, uint16_t &rx) {
     }
     uint8_t tx_buf[2] = {(uint8_t)(tx >> 8), (uint8_t)(tx & 0xFF)};
     uint8_t rx_buf[2] = {0, 0};
-    spi_transaction_t trans = {};
+
+    spi_transaction_t trans{};
     trans.length = 16;
-    trans.rxlength = 16;
     trans.tx_buffer = tx_buf;
     trans.rx_buffer = rx_buf;
+    
     esp_err_t ret = _spi.transmit(_dev, &trans);
-    if (ret == ESP_OK) {
-        rx = ((uint16_t)rx_buf[0] << 8) | rx_buf[1];
-    }
+    rx = ((uint16_t)rx_buf[0] << 8) | rx_buf[1];
     return ret;
 }
 
@@ -88,10 +89,6 @@ esp_err_t DRV8323::read_register(uint8_t reg, uint16_t &value) {
     uint16_t cmd = (1 << 15) | (reg << 11);
     uint16_t rx;
     esp_err_t ret = _spi_transfer(cmd, rx);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    ret = _spi_transfer(0x0000, rx);
     if (ret != ESP_OK) {
         return ret;
     }

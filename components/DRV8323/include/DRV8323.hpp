@@ -20,10 +20,10 @@ public:
     };
 
     enum DriverControlBits : uint16_t {
-        PWM_MODE_6X        = (0x000 << 8),
-        PWM_MODE_3X        = (0x001 << 8),
-        PWM_MODE_1X        = (0x002 << 8),
-        PWM_MODE_INDEP     = (0x003 << 8),
+        PWM_MODE_6X        = (0x000 << 5),
+        PWM_MODE_3X        = (0x001 << 5),
+        PWM_MODE_1X        = (0x002 << 5),
+        PWM_MODE_INDEP     = (0x003 << 5),
     };
 
     enum OCPControlBits : uint16_t {

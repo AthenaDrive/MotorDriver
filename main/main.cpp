@@ -221,6 +221,7 @@ extern "C" void app_main(void) {
     mcp.digital_write(DRV8323_INLB, false);
     mcp.digital_write(DRV8323_INLC, false);
 
+    mcp.pin_mode(MCP_PIN_B2, false); // Motor FAULT
     mcp.pin_mode(DRV8323_ENABLE, true);
     mcp.digital_write(DRV8323_ENABLE, true);
 
@@ -234,7 +235,7 @@ extern "C" void app_main(void) {
     AS5047P enc(spi0, AS5047P_CS);
     ESP_ERROR_CHECK(enc.init());
 
-    DRV8323 drv(spi0, DRV8323_CS);
+    DRV8323 drv(spi0, DRV8323_CS, 1, 500000);
     ESP_ERROR_CHECK(drv.init());
     drv.set_3x_pwm_mode();
 
@@ -317,10 +318,10 @@ extern "C" void app_main(void) {
     }
 
     // Start UDP sender on eth0 only
-    xTaskCreate(udp_send_task, "udp_eth0", 4096, (void *)W5500_0_IP, 12, nullptr);
+    // xTaskCreate(udp_send_task, "udp_eth0", 4096, (void *)W5500_0_IP, 12, nullptr);
 
     // Start TCP echo client on eth0 only
-    xTaskCreate(tcp_echo_task, "tcp_echo", 4096, (void *)W5500_0_IP, 12, nullptr);
+    // xTaskCreate(tcp_echo_task, "tcp_echo", 4096, (void *)W5500_0_IP, 12, nullptr);
 
     // --- ADC: phase current sensing (DRV8323 CSA outputs) ---
     ADCOneshot adc;
@@ -339,6 +340,18 @@ extern "C" void app_main(void) {
 
     float temp, vbus, vshunt, current, power;
     float ax, ay, az, gx, gy, gz, lsm_temp, angle;
+
+    drv.set_3x_pwm_mode();
+
+    uint16_t drvReg;
+    for (int i = 0; i < 8; i++) {
+        auto err = drv.read_register(i, drvReg);
+        if (err != ESP_OK) {
+            printf("Error when reading register %i.\n", i);
+        }
+        printf("Register %i: %i\n", i, drvReg);
+    }
+    
 
     while (1) {
         bool switchSignal = false;
