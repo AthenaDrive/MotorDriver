@@ -48,14 +48,11 @@
 // ============================================================
 // W5500 Ethernet Static IP Configuration
 // ============================================================
-// Each port on a different subnet so routing is unambiguous.
-#define W5500_0_IP      "192.168.0.10"
+#define W5500_0_IP      "192.168.0.18"
 #define W5500_0_GW      "192.168.0.1"
-#define W5500_1_IP      "192.168.0.11"
+#define W5500_1_IP      "192.168.0.17"
 #define W5500_1_GW      "192.168.0.1"
 #define W5500_NETMASK   "255.255.255.0"
 
-// ============================================================
-// TCP Server (Echo) Configuration
-// ============================================================
 #define TCP_LISTEN_PORT 5001
+#define UDP_DEST_PORT   5000
