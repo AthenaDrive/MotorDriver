@@ -9,6 +9,48 @@
 #include "lwip/netdb.h"
 #include "lwip/netif.h"
 
+void udp_controller_task(void *arg) {
+    _TaskConfigUDP* args = static_cast<_TaskConfigUDP*>(arg);
+    const char* bindIP = args->bindIP;
+    const char* UDP_DEST_IP = args->destionationIP;
+    uint16_t UDP_DEST_PORT = args->UDP_DESTINATION_PORT;
+
+    struct sockaddr_in bind_addr = {};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = inet_addr(bindIP);
+    bind_addr.sin_port = htons(UDP_DEST_PORT);
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0) {
+        printf("UDP[%s]: socket() errno=%d\n", bindIP, errno);
+        vTaskDelete(nullptr);
+    }
+
+    bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
+
+    struct sockaddr_in dest_addr = {};
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_addr.s_addr = inet_addr(UDP_DEST_IP);
+    dest_addr.sin_port = htons(UDP_DEST_PORT);
+
+    constexpr uint32_t recvBufferSize = 1024;
+    uint8_t recvBuffer[recvBufferSize];
+
+    while (1) {
+        // Read packet from Controller (Unsure if this is working correctly, not tested yet.)
+        ssize_t len = recvfrom(sock, recvBuffer, sizeof(recvBuffer), MSG_DONTWAIT, NULL, NULL);
+
+        if (len > 0) {
+            ssize_t lenSent = globalVariableManager.setUdpFromPeripheralBuffer(recvBuffer, len);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    close(sock);
+    vTaskDelete(nullptr);
+}
+
 void udp_peripheral_task(void *arg) {
     _TaskConfigUDP* args = static_cast<_TaskConfigUDP*>(arg);
     const char* bindIP = args->bindIP;
@@ -37,37 +79,26 @@ void udp_peripheral_task(void *arg) {
 
     static uint32_t iteration = 0;
 
+    constexpr uint32_t maxRecvBuffer = 1024;
     constexpr uint32_t packetBufferSize = 16;
-    constexpr uint32_t recvBufferSize = 1024;
-    uint8_t packet[packetBufferSize];
-    uint8_t recvBuffer[recvBufferSize];
+    uint8_t packet[packetBufferSize + maxRecvBuffer];
 
     uint32_t header = 0b111;
 
     while (1) {
-        // Read packet from prev
-        uint32_t prevLen = 0;
-        uint32_t len = recvfrom(sock, recvBuffer, sizeof(recvBuffer), MSG_DONTWAIT, NULL, NULL);
-        while (len > 0) {
-            prevLen = len;
-            len = recvfrom(sock, recvBuffer, sizeof(recvBuffer), MSG_DONTWAIT, NULL, NULL);
-        }
+        uint32_t recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + 16, maxRecvBuffer);
 
-        // Actual len is prevLen
-
-
-        // Send packet to next
+        // Send packet to Controller
         uint32_t iter = iteration++;
         float pos = globalVariableManager.getAngle();
         auto time = esp_timer_get_time();
-        // printf("Sending: %li, %f.\n", iter, pos);
 
         memcpy(packet + 0, &header, 4);
         memcpy(packet + 4, &iter, 4);
         memcpy(packet + 8, &time, 4);
         memcpy(packet + 12, &pos, 4);
 
-        int sent = sendto(sock, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        int sent = sendto(sock, packet, packetBufferSize + recvBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if (sent < 0) {
             printf("UDP[%s]: sendto() errno=%d\n", bindIP, errno);
         }
@@ -170,9 +201,15 @@ EthernetTask::EthernetTask(EthernetTaskConfig &config)
 }
 
 void EthernetTask::begin() {
-    _TaskConfigUDP udpConfig{
+    _TaskConfigUDP udpConfigPeripheral{
         .bindIP = _config.cW5500_0_IP,
         .destionationIP = _config.cW5500_1_IP,
+        .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
+    };
+
+    _TaskConfigUDP udpConfigController{
+        .bindIP = _config.cW5500_1_IP,
+        .destionationIP = _config.cW5500_0_IP,
         .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
     };
 
@@ -182,7 +219,8 @@ void EthernetTask::begin() {
     };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    xTaskCreate(udp_peripheral_task, "udp_eth0", 8192, &udpConfig, 12, nullptr);
+    xTaskCreate(udp_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
+    xTaskCreate(udp_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
     xTaskCreate(tcp_peripheral_task, "tcp_eth0", 8192, &tcpConfig, 12, nullptr);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
