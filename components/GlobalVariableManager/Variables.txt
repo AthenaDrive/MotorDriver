@@ -1,4 +1,6 @@
 # Variables
+Buffer, udpFromPeripheralBuffer, 1024
+
 uint32_t, numPolePairs, 20
 bool, wantedCalibrationMode, false
 bool, actualCalibrationMode, false
