@@ -125,8 +125,8 @@ extern "C" void app_main(void) {
     bus1_cfg.max_transfer_sz = 4096;
     ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &bus1_cfg, SPI_DMA_CH_AUTO));
 
-    SdCard sd(SPI3_HOST, SD_CARD_CS);
-    ESP_ERROR_CHECK(sd.init());
+    // SdCard sd(SPI3_HOST, SD_CARD_CS);
+    // ESP_ERROR_CHECK(sd.init());
 
     EthernetTaskConfig ethConfig{
         .cW5500_0_CS = W5500_0_CS,
