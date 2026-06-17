@@ -17,6 +17,9 @@ public:
     static constexpr float TWO_PI = 6.283185307179586f;
     static constexpr float PI_DIV_2 = 1.570796326794897;
 
+    uint32_t getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t setUdpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
+
     uint32_t getNumPolePairs();
     void setNumPolePairs(uint32_t value);
 
@@ -116,10 +119,17 @@ public:
     uint32_t getPositionControlFrequency();
     void setPositionControlFrequency(uint32_t value);
 
+
+private:
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
-private:
+
+    constexpr static uint32_t _udpFromPeripheralBufferCapacity{1024};
+    uint8_t _udpFromPeripheralBuffer[_udpFromPeripheralBufferCapacity];
+    uint32_t _udpFromPeripheralBufferSize{0};
+    std::mutex _udpFromPeripheralBufferMutex;
+
     std::atomic_uint32_t _numPolePairs{20};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};

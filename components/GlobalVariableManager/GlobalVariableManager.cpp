@@ -50,6 +50,27 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
     std::memcpy(&value, &bits, sizeof(value));
     return value;
 }
+uint32_t GlobalVariableManager::getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity) {
+    if (capacity < _udpFromPeripheralBufferSize) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_udpFromPeripheralBufferMutex);
+    memcpy(value, _udpFromPeripheralBuffer, _udpFromPeripheralBufferSize);
+    return _udpFromPeripheralBufferSize;
+}
+
+uint32_t GlobalVariableManager::setUdpFromPeripheralBuffer(const uint8_t* value, uint32_t capacity) {
+    if (capacity > _udpFromPeripheralBufferCapacity) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_udpFromPeripheralBufferMutex);
+    memcpy(_udpFromPeripheralBuffer, value, capacity);
+    _udpFromPeripheralBufferSize = capacity;
+    return capacity;
+}
+
 uint32_t GlobalVariableManager::getNumPolePairs() {
     return _numPolePairs.load(std::memory_order_relaxed);
 }

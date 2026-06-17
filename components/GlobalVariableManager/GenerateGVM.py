@@ -49,27 +49,49 @@ with open(f"{path}/include/{fileName}.hpp", "w+") as header:
 
     for var in variables:
         name = var[1][0].upper() + var[1][1:]
-        header.writelines([
-            f"    {var[0]} get{name}();\n",
-            f"    void set{name}({var[0]} value);\n",
-            "\n"
-        ])
-    
-    header.writelines([
-        f"    static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);\n"
-        f"    static float atomic_load_float(std::atomic_uint32_t& atomicValue);\n"
-    ])
+
+        if (var[0] == "Buffer"):
+            header.writelines([
+                f"    uint32_t get{name}(uint8_t* value, uint32_t capacity);\n",
+                f"    uint32_t set{name}(const uint8_t* value, uint32_t valueSize);\n"
+            ])
+
+        else:
+            header.writelines([
+                f"    {var[0]} get{name}();\n",
+                f"    void set{name}({var[0]} value);\n"
+            ])
+        
+        header.write("\n")
 
     header.writelines([
         "\n",
         "private:\n"
     ])
 
+    header.writelines([
+        f"    static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);\n"
+        f"    static float atomic_load_float(std::atomic_uint32_t& atomicValue);\n",
+        "\n"
+    ])
+
     for var in variables:
         t = var[0] if var[0] != "float" else "uint32_t"
         value = var[2] if var[0] != "float" else "0"
-        header.write(f"    std::atomic_{t} _{var[1]}{{{value}}};\n")
-    
+
+        if (var[0] == "Buffer"):
+            header.writelines([
+                "\n",
+                f"    constexpr static uint32_t _{var[1]}Capacity{{{var[2]}}};\n",
+                f"    uint8_t _{var[1]}[_{var[1]}Capacity];\n",
+                f"    uint32_t _{var[1]}Size{{0}};\n",
+                f"    std::mutex _{var[1]}Mutex;\n",
+                "\n"
+            ])
+        
+        else:
+            header.write(f"    std::atomic_{t} _{var[1]}{{{value}}};\n")
+
     header.writelines([
         "};\n",
         "\n"
@@ -92,6 +114,7 @@ with open(f"{path}/{fileName}.cpp", "w+") as source:
         if (var[0] != "float"): continue
 
         source.write(f"    atomic_store_float(_{var[1]}, {var[2]});\n")
+
     source.writelines([
         "}\n",
         "\n"
@@ -118,20 +141,46 @@ with open(f"{path}/{fileName}.cpp", "w+") as source:
         t = "uint32_t" if var[0] == "float" else var[0]
         name = var[1][0].upper() + var[1][1:]
 
-        if (var[0]) == "float":
-            loadLine = f"return atomic_load_float(_{var[1]});\n"
-            storeLine = f"atomic_store_float(_{var[1]}, value);\n"
-        else:
-            loadLine = f"return _{var[1]}.load(std::memory_order_relaxed);\n"
-            storeLine = f"_{var[1]}.store(value, std::memory_order_relaxed);\n"
+        if (var[0] == "Buffer"):
+            source.writelines([
+                f"uint32_t GlobalVariableManager::get{name}(uint8_t* value, uint32_t capacity) {{\n",
+                f"    if (capacity < _{var[1]}Size) {{\n",
+                f"        return 0;\n",
+                f"    }}\n",
+                f"    \n",
+                f"    std::lock_guard<std::mutex> lock(_{var[1]}Mutex);\n",
+                f"    memcpy(value, _{var[1]}, _{var[1]}Size);\n",
+                f"    return _{var[1]}Size;\n",
+                f"}}\n",
+                f"\n",
+                f"uint32_t GlobalVariableManager::set{name}(const uint8_t* value, uint32_t capacity) {{\n",
+                f"    if (capacity > _{var[1]}Capacity) {{\n",
+                f"        return 0;\n",
+                f"    }}\n",
+                f"    \n",
+                f"    std::lock_guard<std::mutex> lock(_{var[1]}Mutex);\n",
+                f"    memcpy(_{var[1]}, value, capacity);\n",
+                f"    _{var[1]}Size = capacity;\n",
+                f"    return capacity;\n",
+                f"}}\n"
+            ])
 
-        source.writelines([
-            f"{var[0]} GlobalVariableManager::get{name}() {{\n",
-            "    " + loadLine,
-            "}\n",
-            "\n",
-            f"void GlobalVariableManager::set{name}({var[0]} value) {{\n",
-            "    " + storeLine,
-            "}\n",
-            "\n"
-        ])
+        else:
+            if (var[0]) == "float":
+                loadLine = f"return atomic_load_float(_{var[1]});\n"
+                storeLine = f"atomic_store_float(_{var[1]}, value);\n"
+            else:
+                loadLine = f"return _{var[1]}.load(std::memory_order_relaxed);\n"
+                storeLine = f"_{var[1]}.store(value, std::memory_order_relaxed);\n"
+
+            source.writelines([
+                f"{var[0]} GlobalVariableManager::get{name}() {{\n",
+                "    " + loadLine,
+                "}\n",
+                "\n",
+                f"void GlobalVariableManager::set{name}({var[0]} value) {{\n",
+                "    " + storeLine,
+                "}\n"
+            ])
+        
+        source.write("\n")
