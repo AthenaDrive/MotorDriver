@@ -65,6 +65,8 @@ static void adc_sampling_task(void *arg) {
 }
 
 extern "C" void app_main(void) {
+    globalVariableManager.setUdpAsPeripheralHeader(0b11111);
+
     // --- I2C bus & sensors ---
     I2CBase i2c(PIN_SDA, PIN_SCL, I2C_FREQ);
     ESP_ERROR_CHECK(i2c.init());
@@ -208,6 +210,8 @@ extern "C" void app_main(void) {
             ina.read_current(current) == ESP_OK &&
             ina.read_power(power) == ESP_OK) {
                 // printf("INA238: %.3fV %.3fmV %.3fA %.3fW\n", vbus, vshunt, current, power);
+                globalVariableManager.setBusVoltage(vbus);
+                globalVariableManager.setBusCurrent(current);
             }
 
         if (lsm.read_accel(ax, ay, az) == ESP_OK &&

@@ -52,7 +52,7 @@ void udp_as_controller_task(void *arg) {
         // Write to downstream
         sendBufferSize = globalVariableManager.getUdpFromControllerBuffer(sendBuffer, sendBufferCapacity);
         if (sendBufferSize > 0) {
-            ssize_t lenSend = sendto(sock, sendBuffer, sendBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+            ssize_t lenSent = sendto(sock, sendBuffer, sendBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -276,7 +276,7 @@ void tcp_as_peripheral_task(void *arg) {
         listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
         if (listen_sock < 0) {
             printf("TCP[%s]: socket() errno=%d\n", bindIP, errno);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
@@ -286,14 +286,14 @@ void tcp_as_peripheral_task(void *arg) {
         if (bind(listen_sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
             printf("TCP[%s]: bind() errno=%d\n", bindIP, errno);
             close(listen_sock);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
         if (listen(listen_sock, 1) < 0) {
             printf("TCP[%s]: listen() errno=%d\n", bindIP, errno);
             close(listen_sock);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
@@ -305,13 +305,14 @@ void tcp_as_peripheral_task(void *arg) {
         if (client_sock < 0) {
             printf("TCP[%s]: accept() errno=%d\n", bindIP, errno);
             close(listen_sock);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
         printf("TCP[%s] client connected\n", bindIP);
         close(listen_sock);
 
+        uint32_t header;
         uint8_t buf[1024];
         while (1) {
             int len = recv(client_sock, buf, sizeof(buf), 0);
@@ -319,15 +320,99 @@ void tcp_as_peripheral_task(void *arg) {
                 printf("TCP[%s]: client disconnected (len=%d errno=%d)\n", bindIP, len, errno);
                 break;
             }
-            int sent = send(client_sock, buf, len, 0);
-            if (sent < 0) {
-                printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
-                break;
+
+            if (len < 4) {
+                printf("TCP[%s]: Invalid header (len: %d < 4)\n", bindIP, len);
+                continue;
+            }
+
+            memcpy(&header, buf, 4);
+            std::bitset<32> headerBits(header);
+            if (headerBits[0]) {
+                // Command
+            } else {
+                printf("Reading data. Got %d bytes. Header: %d\n", len, header);
+                // Reading data
+                uint8_t outBuf[1024];
+                uint32_t outBufOffset = 0;
+                memcpy(outBuf, &header, 4);
+                outBufOffset += 4;
+
+                for (int i = 1; i < 32; i++) {
+                    if (!headerBits[i]) { continue; }
+
+                    switch (i)
+                    {
+                        case 1: {
+                            printf("Bus voltage.\n");
+                            float busVoltage = globalVariableManager.getBusVoltage();
+                            memcpy(outBuf, &busVoltage, 4);
+                        } break;
+
+                        case 2: {
+                            printf("Bus current.\n");
+                            float busCurrent = globalVariableManager.getBusCurrent();
+                            memcpy(outBuf, &busCurrent, 4);
+                        } break;
+
+                        case 3: {
+                            uint32_t ledStatus = globalVariableManager.getLedStatus();
+                            memcpy(outBuf, &ledStatus, 4);
+                        } break;
+
+                        case 4: {
+                            uint32_t buttonStatus = globalVariableManager.getButtonStatus();
+                            memcpy(outBuf, &buttonStatus, 4);
+                        } break;
+
+                        case 5: {
+                            uint32_t currentLimitBus = globalVariableManager.getCurrentLimitBus();
+                            memcpy(outBuf, &currentLimitBus, 4);
+                        } break;
+
+                        case 6: {
+                            uint32_t currentLimitPhase = globalVariableManager.getCurrentLimitPhase();
+                            memcpy(outBuf, &currentLimitPhase, 4);
+                        } break;
+
+                        case 7: {
+                            uint32_t boardState = globalVariableManager.getBoardState();
+                            memcpy(outBuf, &boardState, 4);
+                        } break;
+
+                        case 8: {
+                            uint32_t drivingMode = globalVariableManager.getDrivingMode();
+                            memcpy(outBuf, &drivingMode, 4);
+                        } break;
+
+                        case 9: {
+                            uint32_t numPolePairs = globalVariableManager.getNumPolePairs();
+                            memcpy(outBuf, &numPolePairs, 4);
+                        } break;
+
+                        case 10: {
+                            float phaseRMSVoltage = globalVariableManager.getPhaseRMSVoltage();
+                            memcpy(outBuf, &phaseRMSVoltage, 4);
+                        } break;
+                    
+                    default:
+                        break;
+                    }
+
+                    outBufOffset += 4;
+                }
+
+                int sent = send(client_sock, outBuf, outBufOffset, 0);
+                printf("Sent %d bytes of data.\n", sent);
+                if (sent < 0) {
+                    printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
+                    break;
+                }
             }
         }
 
         close(client_sock);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
