@@ -26,6 +26,12 @@ public:
     uint32_t getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity);
     uint32_t setUdpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
 
+    uint32_t getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t setTcpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
+
+    uint32_t getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t setTcpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
+
     uint32_t getNumPolePairs();
     void setNumPolePairs(uint32_t value);
 
@@ -62,11 +68,20 @@ public:
     uint32_t getAvgLoopTimeSecondary();
     void setAvgLoopTimeSecondary(uint32_t value);
 
-    uint32_t getBusVoltage();
-    void setBusVoltage(uint32_t value);
+    uint32_t getBoardState();
+    void setBoardState(uint32_t value);
 
-    uint32_t getBusCurrent();
-    void setBusCurrent(uint32_t value);
+    uint32_t getLedStatus();
+    void setLedStatus(uint32_t value);
+
+    uint32_t getButtonStatus();
+    void setButtonStatus(uint32_t value);
+
+    float getBusVoltage();
+    void setBusVoltage(float value);
+
+    float getBusCurrent();
+    void setBusCurrent(float value);
 
     uint32_t getDrivingMode();
     void setDrivingMode(uint32_t value);
@@ -76,6 +91,9 @@ public:
 
     uint32_t getCurrentLimitBus();
     void setCurrentLimitBus(uint32_t value);
+
+    float getPhaseRMSVoltage();
+    void setPhaseRMSVoltage(float value);
 
     float getIa();
     void setIa(float value);
@@ -149,6 +167,18 @@ private:
     uint32_t _udpFromControllerBufferSize{0};
     std::mutex _udpFromControllerBufferMutex;
 
+
+    constexpr static uint32_t _tcpFromPeripheralBufferCapacity{1024};
+    uint8_t _tcpFromPeripheralBuffer[_tcpFromPeripheralBufferCapacity];
+    uint32_t _tcpFromPeripheralBufferSize{0};
+    std::mutex _tcpFromPeripheralBufferMutex;
+
+
+    constexpr static uint32_t _tcpFromControllerBufferCapacity{1024};
+    uint8_t _tcpFromControllerBuffer[_tcpFromControllerBufferCapacity];
+    uint32_t _tcpFromControllerBufferSize{0};
+    std::mutex _tcpFromControllerBufferMutex;
+
     std::atomic_uint32_t _numPolePairs{20};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
@@ -161,11 +191,15 @@ private:
     std::atomic_uint32_t _avgTorque{0};
     std::atomic_uint32_t _avgLoopTimeFOC{0};
     std::atomic_uint32_t _avgLoopTimeSecondary{0};
+    std::atomic_uint32_t _boardState{0};
+    std::atomic_uint32_t _ledStatus{0};
+    std::atomic_uint32_t _buttonStatus{0};
     std::atomic_uint32_t _busVoltage{0};
     std::atomic_uint32_t _busCurrent{0};
     std::atomic_uint32_t _drivingMode{0};
     std::atomic_uint32_t _currentLimitPhase{1000};
     std::atomic_uint32_t _currentLimitBus{5000};
+    std::atomic_uint32_t _phaseRMSVoltage{0};
     std::atomic_uint32_t _Ia{0};
     std::atomic_uint32_t _Ib{0};
     std::atomic_uint32_t _Ic{0};

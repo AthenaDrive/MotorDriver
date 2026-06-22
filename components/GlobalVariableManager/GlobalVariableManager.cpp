@@ -18,6 +18,9 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_avgVelocity, 0.0f);
     atomic_store_float(_avgAcceleration, 0.0f);
     atomic_store_float(_avgTorque, 0.0f);
+    atomic_store_float(_busVoltage, 0);
+    atomic_store_float(_busCurrent, 0);
+    atomic_store_float(_phaseRMSVoltage, 0.0f);
     atomic_store_float(_Ia, 0.0f);
     atomic_store_float(_Ib, 0.0f);
     atomic_store_float(_Ic, 0.0f);
@@ -96,6 +99,48 @@ uint32_t GlobalVariableManager::setUdpFromControllerBuffer(const uint8_t* value,
     std::lock_guard<std::mutex> lock(_udpFromControllerBufferMutex);
     memcpy(_udpFromControllerBuffer, value, capacity);
     _udpFromControllerBufferSize = capacity;
+    return capacity;
+}
+
+uint32_t GlobalVariableManager::getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity) {
+    if (capacity < _tcpFromPeripheralBufferSize) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_tcpFromPeripheralBufferMutex);
+    memcpy(value, _tcpFromPeripheralBuffer, _tcpFromPeripheralBufferSize);
+    return _tcpFromPeripheralBufferSize;
+}
+
+uint32_t GlobalVariableManager::setTcpFromPeripheralBuffer(const uint8_t* value, uint32_t capacity) {
+    if (capacity > _tcpFromPeripheralBufferCapacity) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_tcpFromPeripheralBufferMutex);
+    memcpy(_tcpFromPeripheralBuffer, value, capacity);
+    _tcpFromPeripheralBufferSize = capacity;
+    return capacity;
+}
+
+uint32_t GlobalVariableManager::getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity) {
+    if (capacity < _tcpFromControllerBufferSize) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_tcpFromControllerBufferMutex);
+    memcpy(value, _tcpFromControllerBuffer, _tcpFromControllerBufferSize);
+    return _tcpFromControllerBufferSize;
+}
+
+uint32_t GlobalVariableManager::setTcpFromControllerBuffer(const uint8_t* value, uint32_t capacity) {
+    if (capacity > _tcpFromControllerBufferCapacity) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_tcpFromControllerBufferMutex);
+    memcpy(_tcpFromControllerBuffer, value, capacity);
+    _tcpFromControllerBufferSize = capacity;
     return capacity;
 }
 
@@ -195,20 +240,44 @@ void GlobalVariableManager::setAvgLoopTimeSecondary(uint32_t value) {
     _avgLoopTimeSecondary.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getBusVoltage() {
-    return _busVoltage.load(std::memory_order_relaxed);
+uint32_t GlobalVariableManager::getBoardState() {
+    return _boardState.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setBusVoltage(uint32_t value) {
-    _busVoltage.store(value, std::memory_order_relaxed);
+void GlobalVariableManager::setBoardState(uint32_t value) {
+    _boardState.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getBusCurrent() {
-    return _busCurrent.load(std::memory_order_relaxed);
+uint32_t GlobalVariableManager::getLedStatus() {
+    return _ledStatus.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setBusCurrent(uint32_t value) {
-    _busCurrent.store(value, std::memory_order_relaxed);
+void GlobalVariableManager::setLedStatus(uint32_t value) {
+    _ledStatus.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getButtonStatus() {
+    return _buttonStatus.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setButtonStatus(uint32_t value) {
+    _buttonStatus.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getBusVoltage() {
+    return atomic_load_float(_busVoltage);
+}
+
+void GlobalVariableManager::setBusVoltage(float value) {
+    atomic_store_float(_busVoltage, value);
+}
+
+float GlobalVariableManager::getBusCurrent() {
+    return atomic_load_float(_busCurrent);
+}
+
+void GlobalVariableManager::setBusCurrent(float value) {
+    atomic_store_float(_busCurrent, value);
 }
 
 uint32_t GlobalVariableManager::getDrivingMode() {
@@ -233,6 +302,14 @@ uint32_t GlobalVariableManager::getCurrentLimitBus() {
 
 void GlobalVariableManager::setCurrentLimitBus(uint32_t value) {
     _currentLimitBus.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getPhaseRMSVoltage() {
+    return atomic_load_float(_phaseRMSVoltage);
+}
+
+void GlobalVariableManager::setPhaseRMSVoltage(float value) {
+    atomic_store_float(_phaseRMSVoltage, value);
 }
 
 float GlobalVariableManager::getIa() {

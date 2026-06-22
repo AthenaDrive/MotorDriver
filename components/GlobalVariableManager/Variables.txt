@@ -3,6 +3,8 @@
 uint32_t, udpAsPeripheralHeader, 0
 Buffer, udpFromPeripheralBuffer, 1024
 Buffer, udpFromControllerBuffer, 1024
+Buffer, tcpFromPeripheralBuffer, 1024
+Buffer, tcpFromControllerBuffer, 1024
 
 uint32_t, numPolePairs, 20
 bool, wantedCalibrationMode, false
@@ -18,12 +20,16 @@ float, avgTorque, 0.0f
 uint32_t, avgLoopTimeFOC, 0
 uint32_t, avgLoopTimeSecondary, 0
 
-uint32_t, busVoltage, 0
-uint32_t, busCurrent, 0
+uint32_t, boardState, 0
+uint32_t, ledStatus, 0
+uint32_t, buttonStatus, 0
+float, busVoltage, 0
+float, busCurrent, 0
 uint32_t, drivingMode, 0
 uint32_t, currentLimitPhase, 1000
 uint32_t, currentLimitBus, 5000
 
+float, phaseRMSVoltage, 0.0f
 float, Ia, 0.0f
 float, Ib, 0.0f
 float, Ic, 0.0f
