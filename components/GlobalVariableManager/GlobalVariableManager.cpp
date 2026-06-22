@@ -18,7 +18,6 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_avgVelocity, 0.0f);
     atomic_store_float(_avgAcceleration, 0.0f);
     atomic_store_float(_avgTorque, 0.0f);
-    atomic_store_float(_avgLoopTimeFOC, 0.0f);
     atomic_store_float(_Ia, 0.0f);
     atomic_store_float(_Ib, 0.0f);
     atomic_store_float(_Ic, 0.0f);
@@ -50,6 +49,14 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
     std::memcpy(&value, &bits, sizeof(value));
     return value;
 }
+uint32_t GlobalVariableManager::getUdpAsPeripheralHeader() {
+    return _udpAsPeripheralHeader.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpAsPeripheralHeader(uint32_t value) {
+    _udpAsPeripheralHeader.store(value, std::memory_order_relaxed);
+}
+
 uint32_t GlobalVariableManager::getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity) {
     if (capacity < _udpFromPeripheralBufferSize) {
         return 0;
@@ -68,6 +75,27 @@ uint32_t GlobalVariableManager::setUdpFromPeripheralBuffer(const uint8_t* value,
     std::lock_guard<std::mutex> lock(_udpFromPeripheralBufferMutex);
     memcpy(_udpFromPeripheralBuffer, value, capacity);
     _udpFromPeripheralBufferSize = capacity;
+    return capacity;
+}
+
+uint32_t GlobalVariableManager::getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity) {
+    if (capacity < _udpFromControllerBufferSize) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_udpFromControllerBufferMutex);
+    memcpy(value, _udpFromControllerBuffer, _udpFromControllerBufferSize);
+    return _udpFromControllerBufferSize;
+}
+
+uint32_t GlobalVariableManager::setUdpFromControllerBuffer(const uint8_t* value, uint32_t capacity) {
+    if (capacity > _udpFromControllerBufferCapacity) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(_udpFromControllerBufferMutex);
+    memcpy(_udpFromControllerBuffer, value, capacity);
+    _udpFromControllerBufferSize = capacity;
     return capacity;
 }
 
@@ -151,20 +179,36 @@ void GlobalVariableManager::setAvgTorque(float value) {
     atomic_store_float(_avgTorque, value);
 }
 
-float GlobalVariableManager::getAvgLoopTimeFOC() {
-    return atomic_load_float(_avgLoopTimeFOC);
+uint32_t GlobalVariableManager::getAvgLoopTimeFOC() {
+    return _avgLoopTimeFOC.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setAvgLoopTimeFOC(float value) {
-    atomic_store_float(_avgLoopTimeFOC, value);
+void GlobalVariableManager::setAvgLoopTimeFOC(uint32_t value) {
+    _avgLoopTimeFOC.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getVoltage() {
-    return _voltage.load(std::memory_order_relaxed);
+uint32_t GlobalVariableManager::getAvgLoopTimeSecondary() {
+    return _avgLoopTimeSecondary.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setVoltage(uint32_t value) {
-    _voltage.store(value, std::memory_order_relaxed);
+void GlobalVariableManager::setAvgLoopTimeSecondary(uint32_t value) {
+    _avgLoopTimeSecondary.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getBusVoltage() {
+    return _busVoltage.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setBusVoltage(uint32_t value) {
+    _busVoltage.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getBusCurrent() {
+    return _busCurrent.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setBusCurrent(uint32_t value) {
+    _busCurrent.store(value, std::memory_order_relaxed);
 }
 
 uint32_t GlobalVariableManager::getDrivingMode() {

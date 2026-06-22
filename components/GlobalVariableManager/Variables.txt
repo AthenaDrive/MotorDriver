@@ -1,5 +1,8 @@
 # Variables
+
+uint32_t, udpAsPeripheralHeader, 0
 Buffer, udpFromPeripheralBuffer, 1024
+Buffer, udpFromControllerBuffer, 1024
 
 uint32_t, numPolePairs, 20
 bool, wantedCalibrationMode, false
@@ -12,9 +15,11 @@ float, torque, 0.0f
 float, avgVelocity, 0.0f
 float, avgAcceleration, 0.0f
 float, avgTorque, 0.0f
-float, avgLoopTimeFOC, 0.0f
+uint32_t, avgLoopTimeFOC, 0
+uint32_t, avgLoopTimeSecondary, 0
 
-uint32_t, voltage, 0
+uint32_t, busVoltage, 0
+uint32_t, busCurrent, 0
 uint32_t, drivingMode, 0
 uint32_t, currentLimitPhase, 1000
 uint32_t, currentLimitBus, 5000

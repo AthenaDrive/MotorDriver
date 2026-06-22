@@ -17,8 +17,14 @@ public:
     static constexpr float TWO_PI = 6.283185307179586f;
     static constexpr float PI_DIV_2 = 1.570796326794897;
 
+    uint32_t getUdpAsPeripheralHeader();
+    void setUdpAsPeripheralHeader(uint32_t value);
+
     uint32_t getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity);
     uint32_t setUdpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
+
+    uint32_t getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t setUdpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
 
     uint32_t getNumPolePairs();
     void setNumPolePairs(uint32_t value);
@@ -50,11 +56,17 @@ public:
     float getAvgTorque();
     void setAvgTorque(float value);
 
-    float getAvgLoopTimeFOC();
-    void setAvgLoopTimeFOC(float value);
+    uint32_t getAvgLoopTimeFOC();
+    void setAvgLoopTimeFOC(uint32_t value);
 
-    uint32_t getVoltage();
-    void setVoltage(uint32_t value);
+    uint32_t getAvgLoopTimeSecondary();
+    void setAvgLoopTimeSecondary(uint32_t value);
+
+    uint32_t getBusVoltage();
+    void setBusVoltage(uint32_t value);
+
+    uint32_t getBusCurrent();
+    void setBusCurrent(uint32_t value);
 
     uint32_t getDrivingMode();
     void setDrivingMode(uint32_t value);
@@ -124,11 +136,18 @@ private:
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
+    std::atomic_uint32_t _udpAsPeripheralHeader{0};
 
     constexpr static uint32_t _udpFromPeripheralBufferCapacity{1024};
     uint8_t _udpFromPeripheralBuffer[_udpFromPeripheralBufferCapacity];
     uint32_t _udpFromPeripheralBufferSize{0};
     std::mutex _udpFromPeripheralBufferMutex;
+
+
+    constexpr static uint32_t _udpFromControllerBufferCapacity{1024};
+    uint8_t _udpFromControllerBuffer[_udpFromControllerBufferCapacity];
+    uint32_t _udpFromControllerBufferSize{0};
+    std::mutex _udpFromControllerBufferMutex;
 
     std::atomic_uint32_t _numPolePairs{20};
     std::atomic_bool _wantedCalibrationMode{false};
@@ -141,7 +160,9 @@ private:
     std::atomic_uint32_t _avgAcceleration{0};
     std::atomic_uint32_t _avgTorque{0};
     std::atomic_uint32_t _avgLoopTimeFOC{0};
-    std::atomic_uint32_t _voltage{0};
+    std::atomic_uint32_t _avgLoopTimeSecondary{0};
+    std::atomic_uint32_t _busVoltage{0};
+    std::atomic_uint32_t _busCurrent{0};
     std::atomic_uint32_t _drivingMode{0};
     std::atomic_uint32_t _currentLimitPhase{1000};
     std::atomic_uint32_t _currentLimitBus{5000};
