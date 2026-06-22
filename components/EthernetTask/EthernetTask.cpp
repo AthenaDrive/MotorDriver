@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <bitset>
+
 #include "EthernetTask.hpp"
 #include "GlobalVariableManager.hpp"
 
@@ -9,7 +11,7 @@
 #include "lwip/netdb.h"
 #include "lwip/netif.h"
 
-void udp_controller_task(void *arg) {
+void udp_as_controller_task(void *arg) {
     _TaskConfigUDP* args = static_cast<_TaskConfigUDP*>(arg);
     const char* bindIP = args->bindIP;
     const char* UDP_DEST_IP = args->destionationIP;
@@ -33,15 +35,24 @@ void udp_controller_task(void *arg) {
     dest_addr.sin_addr.s_addr = inet_addr(UDP_DEST_IP);
     dest_addr.sin_port = htons(UDP_DEST_PORT);
 
-    constexpr uint32_t recvBufferSize = 1024;
-    uint8_t recvBuffer[recvBufferSize];
+    constexpr uint32_t recvBufferCapacity = 1024;
+    uint8_t recvBuffer[recvBufferCapacity];
+
+    constexpr uint32_t sendBufferCapacity = 1024;
+    uint8_t sendBuffer[sendBufferCapacity];
+    uint32_t sendBufferSize = 0;
 
     while (1) {
-        // Read packet from Controller (Unsure if this is working correctly, not tested yet.)
-        ssize_t len = recvfrom(sock, recvBuffer, sizeof(recvBuffer), MSG_DONTWAIT, NULL, NULL);
+        // Read from downstream
+        ssize_t lenRecv = recvfrom(sock, recvBuffer, sizeof(recvBuffer), MSG_DONTWAIT, NULL, NULL);
+        if (lenRecv > 0) {
+            ssize_t lenSent = globalVariableManager.setUdpFromPeripheralBuffer(recvBuffer, lenRecv);
+        }
 
-        if (len > 0) {
-            ssize_t lenSent = globalVariableManager.setUdpFromPeripheralBuffer(recvBuffer, len);
+        // Write to downstream
+        sendBufferSize = globalVariableManager.getUdpFromControllerBuffer(sendBuffer, sendBufferCapacity);
+        if (sendBufferSize > 0) {
+            ssize_t lenSend = sendto(sock, sendBuffer, sendBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -51,7 +62,7 @@ void udp_controller_task(void *arg) {
     vTaskDelete(nullptr);
 }
 
-void udp_peripheral_task(void *arg) {
+void udp_as_peripheral_task(void *arg) {
     _TaskConfigUDP* args = static_cast<_TaskConfigUDP*>(arg);
     const char* bindIP = args->bindIP;
     const char* UDP_DEST_IP = args->destionationIP;
@@ -77,31 +88,170 @@ void udp_peripheral_task(void *arg) {
 
     printf("UDP sender %s -> %s:%d\n", bindIP, UDP_DEST_IP, UDP_DEST_PORT);
 
-    static uint32_t iteration = 0;
+    // Packet to controller will probably never be this big.
+    // As of 18/06/26, excel protocol gives a max size of 60 bytes.
+    constexpr uint32_t packetBufferSize = 128;
 
-    constexpr uint32_t maxRecvBuffer = 1024;
-    constexpr uint32_t packetBufferSize = 16;
+    // Gives a lower bound of max motors downstream.
+    // Motors probably uses less than packetBufferSize,
+    // This therefore *probably* gives 32+ motors.
+    // But only 17 is guaranteed (16 + this one).
+    constexpr uint32_t maxRecvBuffer = packetBufferSize * 16;
     uint8_t packet[packetBufferSize + maxRecvBuffer];
 
-    uint32_t header = 0b111;
+    uint32_t header;
+    uint32_t offset = 0;
+    uint32_t recvBufferSize;
+    static uint32_t iteration = 0;
+
+    uint32_t recvHeader;
+    uint32_t recvOffset = 0;
+    uint8_t recvPacket[packetBufferSize + maxRecvBuffer];
 
     while (1) {
-        uint32_t recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + 16, maxRecvBuffer);
+        iteration++;
+        offset = 0;
 
-        // Send packet to Controller
-        uint32_t iter = iteration++;
-        float pos = globalVariableManager.getAngle();
-        auto time = esp_timer_get_time();
+        // Send to upstream
+        header = globalVariableManager.getUdpAsPeripheralHeader();
 
-        memcpy(packet + 0, &header, 4);
-        memcpy(packet + 4, &iter, 4);
-        memcpy(packet + 8, &time, 4);
-        memcpy(packet + 12, &pos, 4);
+        memcpy(packet + offset, &header, 4);
+        offset += 4;
 
-        int sent = sendto(sock, packet, packetBufferSize + recvBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        std::bitset<32> headerBits(header);
+        for (int i = 0; i < 32; i++) {
+            if (headerBits[i]) {
+                switch (i)
+                {
+                    case 0: {
+                        memcpy(packet + offset, &iteration, 4);
+                    } break;
+
+                    case 1: {
+                        uint32_t time = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+                        memcpy(packet + offset, &time, 4);
+                    } break;
+
+                    case 2: {
+                        float pos = globalVariableManager.getAngle();
+                        memcpy(packet + offset, &pos, 4);
+                    } break;
+
+                    case 3: {
+                        float vel = globalVariableManager.getVelocity();
+                        memcpy(packet + offset, &vel, 4);
+                    } break;
+
+                    case 4: {
+                        float acc = globalVariableManager.getAcceleration();
+                        memcpy(packet + offset, &acc, 4);
+                    } break;
+
+                    case 5: {
+                        float torque = globalVariableManager.getTorque();
+                        memcpy(packet + offset, &torque, 4);
+                    } break;
+
+                    case 6: {
+                        float phaseA = globalVariableManager.getIa();
+                        memcpy(packet + offset, &phaseA, 4);
+                    } break;
+
+                    case 7: {
+                        float phaseB = globalVariableManager.getIb();
+                        memcpy(packet + offset, &phaseB, 4);
+                    } break;
+
+                    case 8: {
+                        float phaseC = globalVariableManager.getIc();
+                        memcpy(packet + offset, &phaseC, 4);
+                    } break;
+
+                    case 9: {
+                        uint32_t busCurrent = globalVariableManager.getBusCurrent();
+                        memcpy(packet + offset, &busCurrent, 4);
+                    } break;
+
+                    case 10: {
+                        uint32_t busVoltage = globalVariableManager.getBusVoltage();
+                        memcpy(packet + offset, &busVoltage, 4);
+                    } break;
+
+                    case 11: {
+                        uint32_t errorRegister = 0; // TODO!
+                        memcpy(packet + offset, &errorRegister, 4);
+                    } break;
+
+                    case 12: {
+                        uint32_t loopTimeFOC = globalVariableManager.getAvgLoopTimeFOC();
+                        memcpy(packet + offset, &loopTimeFOC, 4);
+                    } break;
+
+                    case 13: {
+                        uint32_t loopTimeSecondary = globalVariableManager.getAvgLoopTimeSecondary();
+                        memcpy(packet + offset, &loopTimeSecondary, 4);
+                    } break;
+                
+                    default: {
+                        // Invalid header or comm protocol updated.
+                    } break;
+                }
+            
+                offset += 4;
+            }
+        }
+
+        recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + offset, maxRecvBuffer);
+        int sent = sendto(sock, packet, offset + recvBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if (sent < 0) {
             printf("UDP[%s]: sendto() errno=%d\n", bindIP, errno);
         }
+
+        // Read from upstream
+        ssize_t lenRecv = recvfrom(sock, recvPacket, sizeof(recvPacket), MSG_DONTWAIT, NULL, NULL);
+        if (lenRecv > 0) {
+            
+            memcpy(&recvHeader, recvPacket + recvOffset, 4);
+            recvOffset += 4;
+
+            std::bitset<32> recvHeaderBits(recvHeader);
+            for (int i = 0; i < 32; i++) {
+                if (recvHeaderBits[i]) {
+                    switch (i)
+                    {
+                        case 0: {
+                            float torqueSetpoint;
+                            memcpy(&torqueSetpoint, recvPacket + recvOffset, 4);
+                            globalVariableManager.setTorqueSetpoint(torqueSetpoint);
+                        } break;
+
+                        case 1: {
+                            float velocitySetpoint;
+                            memcpy(&velocitySetpoint, recvPacket + recvOffset, 4);
+                            globalVariableManager.setVelocitySetpoint(velocitySetpoint);
+                        } break;
+
+                        case 2: {
+                            float positionSetpoint;
+                            memcpy(&positionSetpoint, recvPacket + recvOffset, 4);
+                            globalVariableManager.setPositionSetpoint(positionSetpoint);
+                        } break;
+                    
+                        default: {
+                            // Invalid header or comm protocol updated.
+                        } break;
+                        }
+
+                    recvOffset += 4;
+                }
+            }
+        
+            if (lenRecv > recvOffset) {
+                globalVariableManager.setUdpFromControllerBuffer(recvPacket + recvOffset, lenRecv - recvOffset);
+            }
+        }
+
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -109,7 +259,7 @@ void udp_peripheral_task(void *arg) {
     vTaskDelete(nullptr);
 }
 
-void tcp_peripheral_task(void *arg) {
+void tcp_as_peripheral_task(void *arg) {
     // Not implemented any actual commands or anything yet. Only a simple echo.
 
     _TaskConfigTCP* args = static_cast<_TaskConfigTCP*>(arg);
@@ -219,9 +369,9 @@ void EthernetTask::begin() {
     };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    xTaskCreate(udp_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
-    xTaskCreate(udp_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
-    xTaskCreate(tcp_peripheral_task, "tcp_eth0", 8192, &tcpConfig, 12, nullptr);
+    xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
+    xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
+    xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfig, 12, nullptr);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
 

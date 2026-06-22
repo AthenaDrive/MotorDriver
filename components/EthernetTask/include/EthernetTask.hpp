@@ -1,4 +1,6 @@
 
+#include "CommunicationConfig.hpp"
+
 #include "driver/gpio.h"
 #include "W5500.hpp"
 
