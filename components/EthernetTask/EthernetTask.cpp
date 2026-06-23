@@ -312,10 +312,34 @@ void tcp_as_peripheral_task(void *arg) {
         printf("TCP[%s] client connected\n", bindIP);
         close(listen_sock);
 
+        uint8_t buf[16];
         uint32_t header;
-        uint8_t buf[1024];
         while (1) {
-            int len = recv(client_sock, buf, sizeof(buf), 0);
+            vTaskDelay(pdMS_TO_TICKS(10));
+
+            uint32_t lengthPrefix;
+            ssize_t len = recv(client_sock, &lengthPrefix, sizeof(lengthPrefix), MSG_WAITALL);
+
+            if (len <= 0) {
+                printf("TCP[%s]: client disconnected (len=%d errno=%d)\n", bindIP, len, errno);
+                break;
+            }
+
+            uint16_t identifier = lengthPrefix >> 16;
+            uint16_t length = lengthPrefix & 0xFFFF;
+
+            printf("Raw: %lx\n", lengthPrefix);
+            printf("Got identifier: %i\n", identifier);
+            printf("Got length: %d\n", length);
+
+            if (identifier != 63609) {
+                // Out of sync..? Problem for later!
+                continue; // Maybe break? Seems exessive to break connection.
+            }
+
+            uint8_t message[length];
+            len = recv(client_sock, message, sizeof(message), MSG_WAITALL);
+
             if (len <= 0) {
                 printf("TCP[%s]: client disconnected (len=%d errno=%d)\n", bindIP, len, errno);
                 break;
@@ -326,16 +350,21 @@ void tcp_as_peripheral_task(void *arg) {
                 continue;
             }
 
-            memcpy(&header, buf, 4);
+            memcpy(&header, message, 4);
             std::bitset<32> headerBits(header);
+            printf("Header: %lb\n", header);
+
             if (headerBits[0]) {
                 // Command
             } else {
-                printf("Reading data. Got %d bytes. Header: %d\n", len, header);
+                printf("Reading data. Got %d bytes. Header: %ld\n", len, header);
                 // Reading data
                 uint8_t outBuf[1024];
                 uint32_t outBufOffset = 0;
-                memcpy(outBuf, &header, 4);
+
+                uint32_t outgoingLengthPrefix = (63609) << 16;
+
+                memcpy(outBuf + outBufOffset, &header, 4);
                 outBufOffset += 4;
 
                 for (int i = 1; i < 32; i++) {
@@ -344,55 +373,55 @@ void tcp_as_peripheral_task(void *arg) {
                     switch (i)
                     {
                         case 1: {
-                            printf("Bus voltage.\n");
                             float busVoltage = globalVariableManager.getBusVoltage();
-                            memcpy(outBuf, &busVoltage, 4);
+                            printf("Bus voltage: %f\n", busVoltage);
+                            memcpy(outBuf + outBufOffset, &busVoltage, 4);
                         } break;
 
                         case 2: {
-                            printf("Bus current.\n");
                             float busCurrent = globalVariableManager.getBusCurrent();
-                            memcpy(outBuf, &busCurrent, 4);
+                            printf("Bus current: %f\n", busCurrent);
+                            memcpy(outBuf + outBufOffset, &busCurrent, 4);
                         } break;
 
                         case 3: {
                             uint32_t ledStatus = globalVariableManager.getLedStatus();
-                            memcpy(outBuf, &ledStatus, 4);
+                            memcpy(outBuf + outBufOffset, &ledStatus, 4);
                         } break;
 
                         case 4: {
                             uint32_t buttonStatus = globalVariableManager.getButtonStatus();
-                            memcpy(outBuf, &buttonStatus, 4);
+                            memcpy(outBuf + outBufOffset, &buttonStatus, 4);
                         } break;
 
                         case 5: {
                             uint32_t currentLimitBus = globalVariableManager.getCurrentLimitBus();
-                            memcpy(outBuf, &currentLimitBus, 4);
+                            memcpy(outBuf + outBufOffset, &currentLimitBus, 4);
                         } break;
 
                         case 6: {
                             uint32_t currentLimitPhase = globalVariableManager.getCurrentLimitPhase();
-                            memcpy(outBuf, &currentLimitPhase, 4);
+                            memcpy(outBuf + outBufOffset, &currentLimitPhase, 4);
                         } break;
 
                         case 7: {
                             uint32_t boardState = globalVariableManager.getBoardState();
-                            memcpy(outBuf, &boardState, 4);
+                            memcpy(outBuf + outBufOffset, &boardState, 4);
                         } break;
 
                         case 8: {
                             uint32_t drivingMode = globalVariableManager.getDrivingMode();
-                            memcpy(outBuf, &drivingMode, 4);
+                            memcpy(outBuf + outBufOffset, &drivingMode, 4);
                         } break;
 
                         case 9: {
                             uint32_t numPolePairs = globalVariableManager.getNumPolePairs();
-                            memcpy(outBuf, &numPolePairs, 4);
+                            memcpy(outBuf + outBufOffset, &numPolePairs, 4);
                         } break;
 
                         case 10: {
                             float phaseRMSVoltage = globalVariableManager.getPhaseRMSVoltage();
-                            memcpy(outBuf, &phaseRMSVoltage, 4);
+                            memcpy(outBuf + outBufOffset, &phaseRMSVoltage, 4);
                         } break;
                     
                     default:
@@ -402,6 +431,8 @@ void tcp_as_peripheral_task(void *arg) {
                     outBufOffset += 4;
                 }
 
+                outgoingLengthPrefix += outBufOffset - 4;
+                memcpy(outBuf, &outgoingLengthPrefix, 4);
                 int sent = send(client_sock, outBuf, outBufOffset, 0);
                 printf("Sent %d bytes of data.\n", sent);
                 if (sent < 0) {
