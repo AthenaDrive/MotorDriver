@@ -68,6 +68,9 @@ public:
     uint32_t getAvgLoopTimeSecondary();
     void setAvgLoopTimeSecondary(uint32_t value);
 
+    uint32_t getErrorFlags();
+    void setErrorFlags(uint32_t value);
+
     uint32_t getBoardState();
     void setBoardState(uint32_t value);
 
@@ -113,6 +116,9 @@ public:
     float getTorqueKd();
     void setTorqueKd(float value);
 
+    float getTorqueLimit();
+    void setTorqueLimit(float value);
+
     float getTorqueSetpoint();
     void setTorqueSetpoint(float value);
 
@@ -127,6 +133,9 @@ public:
 
     float getVelocityKd();
     void setVelocityKd(float value);
+
+    float getVelocityLimit();
+    void setVelocityLimit(float value);
 
     float getVelocitySetpoint();
     void setVelocitySetpoint(float value);
@@ -191,6 +200,7 @@ private:
     std::atomic_uint32_t _avgTorque{0};
     std::atomic_uint32_t _avgLoopTimeFOC{0};
     std::atomic_uint32_t _avgLoopTimeSecondary{0};
+    std::atomic_uint32_t _errorFlags{0};
     std::atomic_uint32_t _boardState{0};
     std::atomic_uint32_t _ledStatus{0};
     std::atomic_uint32_t _buttonStatus{0};
@@ -206,11 +216,13 @@ private:
     std::atomic_uint32_t _torqueKp{0};
     std::atomic_uint32_t _torqueKi{0};
     std::atomic_uint32_t _torqueKd{0};
+    std::atomic_uint32_t _torqueLimit{0};
     std::atomic_uint32_t _torqueSetpoint{0};
     std::atomic_uint32_t _torqueControlFrequency{1};
     std::atomic_uint32_t _velocityKp{0};
     std::atomic_uint32_t _velocityKi{0};
     std::atomic_uint32_t _velocityKd{0};
+    std::atomic_uint32_t _velocityLimit{0};
     std::atomic_uint32_t _velocitySetpoint{0};
     std::atomic_uint32_t _velocityControlFrequency{10};
     std::atomic_uint32_t _positionKp{0};

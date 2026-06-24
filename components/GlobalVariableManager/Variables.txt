@@ -20,6 +20,7 @@ float, avgTorque, 0.0f
 uint32_t, avgLoopTimeFOC, 0
 uint32_t, avgLoopTimeSecondary, 0
 
+uint32_t, errorFlags, 0
 uint32_t, boardState, 0
 uint32_t, ledStatus, 0
 uint32_t, buttonStatus, 0
@@ -37,12 +38,14 @@ float, Ic, 0.0f
 float, torqueKp, 0.0f
 float, torqueKi, 0.0f
 float, torqueKd, 0.0f
+float, torqueLimit, 0.0f
 float, torqueSetpoint, 0.0f
 uint32_t, torqueControlFrequency, 1
 
 float, velocityKp, 0.0f
 float, velocityKi, 0.0f
 float, velocityKd, 0.0f
+float, velocityLimit, 0.0f
 float, velocitySetpoint, 0.0f
 uint32_t, velocityControlFrequency, 10
 

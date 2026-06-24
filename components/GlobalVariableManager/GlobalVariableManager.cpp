@@ -27,10 +27,12 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_torqueKp, 0.0f);
     atomic_store_float(_torqueKi, 0.0f);
     atomic_store_float(_torqueKd, 0.0f);
+    atomic_store_float(_torqueLimit, 0.0f);
     atomic_store_float(_torqueSetpoint, 0.0f);
     atomic_store_float(_velocityKp, 0.0f);
     atomic_store_float(_velocityKi, 0.0f);
     atomic_store_float(_velocityKd, 0.0f);
+    atomic_store_float(_velocityLimit, 0.0f);
     atomic_store_float(_velocitySetpoint, 0.0f);
     atomic_store_float(_positionKp, 0.0f);
     atomic_store_float(_positionKi, 0.0f);
@@ -240,6 +242,14 @@ void GlobalVariableManager::setAvgLoopTimeSecondary(uint32_t value) {
     _avgLoopTimeSecondary.store(value, std::memory_order_relaxed);
 }
 
+uint32_t GlobalVariableManager::getErrorFlags() {
+    return _errorFlags.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setErrorFlags(uint32_t value) {
+    _errorFlags.store(value, std::memory_order_relaxed);
+}
+
 uint32_t GlobalVariableManager::getBoardState() {
     return _boardState.load(std::memory_order_relaxed);
 }
@@ -360,6 +370,14 @@ void GlobalVariableManager::setTorqueKd(float value) {
     atomic_store_float(_torqueKd, value);
 }
 
+float GlobalVariableManager::getTorqueLimit() {
+    return atomic_load_float(_torqueLimit);
+}
+
+void GlobalVariableManager::setTorqueLimit(float value) {
+    atomic_store_float(_torqueLimit, value);
+}
+
 float GlobalVariableManager::getTorqueSetpoint() {
     return atomic_load_float(_torqueSetpoint);
 }
@@ -398,6 +416,14 @@ float GlobalVariableManager::getVelocityKd() {
 
 void GlobalVariableManager::setVelocityKd(float value) {
     atomic_store_float(_velocityKd, value);
+}
+
+float GlobalVariableManager::getVelocityLimit() {
+    return atomic_load_float(_velocityLimit);
+}
+
+void GlobalVariableManager::setVelocityLimit(float value) {
+    atomic_store_float(_velocityLimit, value);
 }
 
 float GlobalVariableManager::getVelocitySetpoint() {
