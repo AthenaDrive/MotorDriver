@@ -312,32 +312,28 @@ void tcp_as_peripheral_task(void *arg) {
         printf("TCP[%s] client connected\n", bindIP);
         close(listen_sock);
 
-        uint8_t buf[16];
         uint32_t header;
+        uint32_t lengthPrefix;
+
+        uint8_t outBuf[1024];
+        uint32_t outBufOffset;
+        uint32_t outgoingLengthPrefix;
+        uint32_t inBufCommandOffset;
         while (1) {
             vTaskDelay(pdMS_TO_TICKS(10));
 
-            uint32_t lengthPrefix;
             ssize_t len = recv(client_sock, &lengthPrefix, sizeof(lengthPrefix), MSG_WAITALL);
-
             if (len <= 0) {
                 printf("TCP[%s]: client disconnected (len=%d errno=%d)\n", bindIP, len, errno);
                 break;
             }
 
-            uint16_t identifier = lengthPrefix >> 16;
-            uint16_t length = lengthPrefix & 0xFFFF;
-
-            printf("Raw: %lx\n", lengthPrefix);
-            printf("Got identifier: %i\n", identifier);
-            printf("Got length: %d\n", length);
-
-            if (identifier != 63609) {
+            if ((lengthPrefix >> 16) != 63609) {
                 // Out of sync..? Problem for later!
                 continue; // Maybe break? Seems exessive to break connection.
             }
 
-            uint8_t message[length];
+            uint8_t message[lengthPrefix & 0xFFFF];
             len = recv(client_sock, message, sizeof(message), MSG_WAITALL);
 
             if (len <= 0) {
@@ -346,26 +342,58 @@ void tcp_as_peripheral_task(void *arg) {
             }
 
             if (len < 4) {
+                // Ouf of sync..? Problem for later!
                 printf("TCP[%s]: Invalid header (len: %d < 4)\n", bindIP, len);
                 continue;
             }
 
             memcpy(&header, message, 4);
             std::bitset<32> headerBits(header);
-            printf("Header: %lb\n", header);
+            for (int i = 31; i > 0; i--) {
+                if (headerBits[i]) {
+                    printf("1");
+                } else {
+                    printf("0");
+                }
+            }
+            printf("\n");
 
+            outBufOffset = 4;
+            outgoingLengthPrefix = (63609) << 16;
+
+            memcpy(outBuf + outBufOffset, &header, 4);
+            outBufOffset += 4;
+
+            inBufCommandOffset = 4;
             if (headerBits[0]) {
                 // Command
+
+                for (int i = 1; i < 32; i++) {
+                    if (!headerBits[i]) { continue; }
+
+                    switch (i)
+                    {
+                        case 1: {
+                            float torqueSetpoint;
+                            memcpy(&torqueSetpoint, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTorqueSetpoint(torqueSetpoint);
+                        } break;
+
+                        case 18: {
+                            uint32_t udpDataHeader;
+                            memcpy(&udpDataHeader, message + inBufCommandOffset, 4);
+                            globalVariableManager.setUdpAsPeripheralHeader(udpDataHeader);
+                        }
+                    
+                    default:
+                        break;
+                    }
+
+                    inBufCommandOffset += 4;
+                }
+
             } else {
-                printf("Reading data. Got %d bytes. Header: %ld\n", len, header);
                 // Reading data
-                uint8_t outBuf[1024];
-                uint32_t outBufOffset = 0;
-
-                uint32_t outgoingLengthPrefix = (63609) << 16;
-
-                memcpy(outBuf + outBufOffset, &header, 4);
-                outBufOffset += 4;
 
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
@@ -374,13 +402,11 @@ void tcp_as_peripheral_task(void *arg) {
                     {
                         case 1: {
                             float busVoltage = globalVariableManager.getBusVoltage();
-                            printf("Bus voltage: %f\n", busVoltage);
                             memcpy(outBuf + outBufOffset, &busVoltage, 4);
                         } break;
 
                         case 2: {
                             float busCurrent = globalVariableManager.getBusCurrent();
-                            printf("Bus current: %f\n", busCurrent);
                             memcpy(outBuf + outBufOffset, &busCurrent, 4);
                         } break;
 
@@ -431,14 +457,15 @@ void tcp_as_peripheral_task(void *arg) {
                     outBufOffset += 4;
                 }
 
-                outgoingLengthPrefix += outBufOffset - 4;
-                memcpy(outBuf, &outgoingLengthPrefix, 4);
-                int sent = send(client_sock, outBuf, outBufOffset, 0);
-                printf("Sent %d bytes of data.\n", sent);
-                if (sent < 0) {
-                    printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
-                    break;
-                }
+            }
+
+            outgoingLengthPrefix += outBufOffset - 4;
+            memcpy(outBuf, &outgoingLengthPrefix, 4);
+            int sent = send(client_sock, outBuf, outBufOffset, 0);
+            printf("Sent %d bytes of data.\n", sent);
+            if (sent < 0) {
+                printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
+                break;
             }
         }
 
