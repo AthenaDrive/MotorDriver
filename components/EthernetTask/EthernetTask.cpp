@@ -349,14 +349,6 @@ void tcp_as_peripheral_task(void *arg) {
 
             memcpy(&header, message, 4);
             std::bitset<32> headerBits(header);
-            for (int i = 31; i > 0; i--) {
-                if (headerBits[i]) {
-                    printf("1");
-                } else {
-                    printf("0");
-                }
-            }
-            printf("\n");
 
             outBufOffset = 4;
             outgoingLengthPrefix = (63609) << 16;
@@ -379,10 +371,116 @@ void tcp_as_peripheral_task(void *arg) {
                             globalVariableManager.setTorqueSetpoint(torqueSetpoint);
                         } break;
 
+                        case 2: {
+                            float torqueKp;
+                            memcpy(&torqueKp, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTorqueKp(torqueKp);
+                        } break;
+
+                        case 3: {
+                            float torqueKd;
+                            memcpy(&torqueKd, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTorqueKd(torqueKd);
+                        } break;
+
+                        case 4: {
+                            // torqueKi, not used.
+                        } break;
+
+                        case 5: {
+                            float torqueLimit;
+                            memcpy(&torqueLimit, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTorqueLimit(torqueLimit);
+                        } break;
+
+                        case 6: {
+                            float velocitySetpoint;
+                            memcpy(&velocitySetpoint, message + inBufCommandOffset, 4);
+                            globalVariableManager.setVelocitySetpoint(velocitySetpoint);
+                        } break;
+
+                        case 7: {
+                            float velocityKp;
+                            memcpy(&velocityKp, message + inBufCommandOffset, 4);
+                            globalVariableManager.setVelocityKp(velocityKp);
+                        } break;
+
+                        case 8: {
+                            float velocityKd;
+                            memcpy(&velocityKd, message + inBufCommandOffset, 4);
+                            globalVariableManager.setVelocityKd(velocityKd);
+                        } break;
+
+                        case 9: {
+                            float velocityKi;
+                            memcpy(&velocityKi, message + inBufCommandOffset, 4);
+                            globalVariableManager.setVelocityKi(velocityKi);
+                        } break;
+
+                        case 10: {
+                            float velocityLimit;
+                            memcpy(&velocityLimit, message + inBufCommandOffset, 4);
+                            globalVariableManager.setVelocityLimit(velocityLimit);
+                        } break;
+
+                        case 11: {
+                            float positionSetpoint;
+                            memcpy(&positionSetpoint, message + inBufCommandOffset, 4);
+                            globalVariableManager.setPositionSetpoint(positionSetpoint);
+                        } break;
+
+                        case 12: {
+                            float positionKp;
+                            memcpy(&positionKp, message + inBufCommandOffset, 4);
+                            globalVariableManager.setPositionKp(positionKp);
+                        } break;
+
+                        case 13: {
+                            float positionKd;
+                            memcpy(&positionKd, message + inBufCommandOffset, 4);
+                            globalVariableManager.setPositionKd(positionKd);
+                        } break;
+
+                        case 14: {
+                            float positionKi;
+                            memcpy(&positionKi, message + inBufCommandOffset, 4);
+                            globalVariableManager.setPositionKi(positionKi);
+                        } break;
+
+                        case 15: {
+                            uint32_t drivingMode;
+                            memcpy(&drivingMode, message + inBufCommandOffset, 4);
+                            globalVariableManager.setDrivingMode(drivingMode);
+                        } break;
+
+                        case 16: {
+                            uint32_t currentLimitBus;
+                            memcpy(&currentLimitBus, message + inBufCommandOffset, 4);
+                            globalVariableManager.setCurrentLimitBus(currentLimitBus);
+                        } break;
+
+                        case 17: {
+                            uint32_t currentLimitPhase;
+                            memcpy(&currentLimitPhase, message + inBufCommandOffset, 4);
+                            globalVariableManager.setCurrentLimitPhase(currentLimitPhase);
+                        } break;
+
                         case 18: {
+                            uint32_t polePairs;
+                            memcpy(&polePairs, message + inBufCommandOffset, 4);
+                            globalVariableManager.setNumPolePairs(polePairs);
+                        } break;
+
+                        case 19: {
                             uint32_t udpDataHeader;
                             memcpy(&udpDataHeader, message + inBufCommandOffset, 4);
                             globalVariableManager.setUdpAsPeripheralHeader(udpDataHeader);
+                        }
+
+                        case 20: {
+                            uint32_t errorFlags;
+                            memcpy(&errorFlags, message + inBufCommandOffset, 4);
+                            globalVariableManager.setErrorFlags(errorFlags);
                         }
                     
                     default:
@@ -449,6 +547,11 @@ void tcp_as_peripheral_task(void *arg) {
                             float phaseRMSVoltage = globalVariableManager.getPhaseRMSVoltage();
                             memcpy(outBuf + outBufOffset, &phaseRMSVoltage, 4);
                         } break;
+
+                        case 11: {
+                            uint32_t errorFlags = globalVariableManager.getErrorFlags();
+                            memcpy(outBuf + outBufOffset, &errorFlags, 4);
+                        } break;
                     
                     default:
                         break;
@@ -462,7 +565,7 @@ void tcp_as_peripheral_task(void *arg) {
             outgoingLengthPrefix += outBufOffset - 4;
             memcpy(outBuf, &outgoingLengthPrefix, 4);
             int sent = send(client_sock, outBuf, outBufOffset, 0);
-            printf("Sent %d bytes of data.\n", sent);
+            // printf("Sent %d bytes of data.\n", sent);
             if (sent < 0) {
                 printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
                 break;
