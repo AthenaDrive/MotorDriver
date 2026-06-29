@@ -26,7 +26,7 @@ struct _TaskConfigUDP {
 
 struct _TaskConfigTCP {
     const char* bindIP;
-    uint32_t TCP_LISTEN_PORT;
+    uint32_t TCP_PORT;
 };
 
 class EthernetTask {

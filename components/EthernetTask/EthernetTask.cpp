@@ -260,11 +260,9 @@ void udp_as_peripheral_task(void *arg) {
 }
 
 void tcp_as_peripheral_task(void *arg) {
-    // Not implemented any actual commands or anything yet. Only a simple echo.
-
     _TaskConfigTCP* args = static_cast<_TaskConfigTCP*>(arg);
     const char* bindIP = args->bindIP;
-    uint16_t TCP_LISTEN_PORT = args->TCP_LISTEN_PORT;
+    uint16_t TCP_LISTEN_PORT = args->TCP_PORT;
 
     struct sockaddr_in bind_addr = {};
     bind_addr.sin_family = AF_INET;
@@ -475,13 +473,13 @@ void tcp_as_peripheral_task(void *arg) {
                             uint32_t udpDataHeader;
                             memcpy(&udpDataHeader, message + inBufCommandOffset, 4);
                             globalVariableManager.setUdpAsPeripheralHeader(udpDataHeader);
-                        }
+                        } break;
 
                         case 20: {
                             uint32_t errorFlags;
                             memcpy(&errorFlags, message + inBufCommandOffset, 4);
                             globalVariableManager.setErrorFlags(errorFlags);
-                        }
+                        } break;
                     
                     default:
                         break;
@@ -577,6 +575,89 @@ void tcp_as_peripheral_task(void *arg) {
     }
 }
 
+void tcp_as_controller_task(void *arg) {
+    _TaskConfigTCP* args = static_cast<_TaskConfigTCP*>(arg);
+
+    const char* serverIP = args->bindIP;
+    uint16_t TCP_SERVER_PORT = args->TCP_PORT;
+
+    struct sockaddr_in server_addr = {};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = inet_addr(serverIP);
+    server_addr.sin_port = htons(TCP_SERVER_PORT);
+
+    int sock;
+
+    while (1)
+    {
+        sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+        if (sock < 0)
+        {
+            printf("TCP[%s]: socket() errno=%d\n", serverIP, errno);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
+        printf("TCP[%s]: connecting...\n", serverIP);
+
+        if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+        {
+            printf("TCP[%s]: connect() errno=%d\n", serverIP, errno);
+            close(sock);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        printf("TCP[%s] connected!\n", serverIP);
+
+
+        uint32_t recvPrefix;
+        constexpr uint32_t recvBufferCapacity = 1024;
+        uint8_t recvBuffer[recvBufferCapacity];
+
+        constexpr uint32_t sendBufferCapacity = 1024;
+        uint8_t sendBuffer[sendBufferCapacity];
+        uint32_t sendBufferSize = 0;
+        while (1)
+        {
+
+            sendBufferSize = globalVariableManager.getTcpFromControllerBuffer(sendBuffer, sendBufferCapacity);
+            if (sendBufferSize > 0) {
+                ssize_t lenSent = send(sock, sendBuffer, sendBufferSize, 0);
+            }
+
+            // Should not use MSG_WAITALL, TODO!
+            ssize_t lenPrefix = recv(sock, &recvPrefix, sizeof(recvBuffer), MSG_WAITALL);
+            if (lenPrefix <= 0) {
+                break;
+            }
+
+            if ((recvPrefix >> 16) != 63609) {
+                // Out of sync..? Problem for later!
+                continue; // Maybe break? Seems exessive to break connection.
+            }
+
+            ssize_t len = recv(sock, recvBuffer, recvPrefix & 0xFFFF, 0);
+            if (len <= 0)
+            {
+                printf("TCP[%s]: disconnected errno=%d\n", serverIP, errno);
+                break;
+            }
+
+            // Not tested yet! Also, not implemented tcp_as_peripheral side.
+            // Also, should probably have one task to read as controller and another to write as controller.
+            if (len == (recvPrefix & 0xFFFF)) {
+                globalVariableManager.setTcpFromPeripheralBuffer(recvBuffer, len);
+            }
+        }
+
+        close(sock);
+
+        printf("TCP[%s]: reconnecting...\n", serverIP);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 EthernetTask::EthernetTask(EthernetTaskConfig &config)
     : _config(config),
       _eth0(config.cW5500_0_CS, config.cW5500_0_INT, 0),
@@ -611,7 +692,7 @@ void EthernetTask::begin() {
 
     _TaskConfigTCP tcpConfig{
         .bindIP = _config.cW5500_0_IP,
-        .TCP_LISTEN_PORT = _config.cTCP_LISTEN_PORT,
+        .TCP_PORT = _config.cTCP_LISTEN_PORT,
     };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
