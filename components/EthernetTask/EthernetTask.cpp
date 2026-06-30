@@ -71,7 +71,7 @@ void udp_as_peripheral_task(void *arg) {
     struct sockaddr_in bind_addr = {};
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_addr.s_addr = inet_addr(bindIP);
-    bind_addr.sin_port = 0;
+    bind_addr.sin_port = htons(UDP_DEST_PORT);
 
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (sock < 0) {
@@ -208,6 +208,7 @@ void udp_as_peripheral_task(void *arg) {
         }
 
         // Read from upstream
+        recvOffset = 0;
         ssize_t lenRecv = recvfrom(sock, recvPacket, sizeof(recvPacket), MSG_DONTWAIT, NULL, NULL);
         if (lenRecv > 0) {
             
@@ -313,7 +314,8 @@ void tcp_as_peripheral_task(void *arg) {
         uint32_t header;
         uint32_t lengthPrefix;
 
-        uint8_t outBuf[1024];
+        constexpr uint32_t outBufCapacity = 1024;
+        uint8_t outBuf[outBufCapacity];
         uint32_t outBufOffset;
         uint32_t outgoingLengthPrefix;
         uint32_t inBufCommandOffset;
@@ -560,9 +562,14 @@ void tcp_as_peripheral_task(void *arg) {
 
             }
 
-            outgoingLengthPrefix += outBufOffset - 4;
+            globalVariableManager.setTcpFromControllerBuffer(message + inBufCommandOffset, len - inBufCommandOffset);
+
+            auto newLenght = globalVariableManager.getTcpFromPeripheralBuffer(outBuf + outBufOffset, outBufCapacity - outBufOffset);
+
+            outgoingLengthPrefix += outBufOffset + newLenght - 4;
             memcpy(outBuf, &outgoingLengthPrefix, 4);
-            int sent = send(client_sock, outBuf, outBufOffset, 0);
+
+            int sent = send(client_sock, outBuf, outBufOffset + newLenght, 0);
             // printf("Sent %d bytes of data.\n", sent);
             if (sent < 0) {
                 printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
@@ -627,7 +634,7 @@ void tcp_as_controller_task(void *arg) {
             }
 
             // Should not use MSG_WAITALL, TODO!
-            ssize_t lenPrefix = recv(sock, &recvPrefix, sizeof(recvBuffer), MSG_WAITALL);
+            ssize_t lenPrefix = recv(sock, &recvPrefix, sizeof(recvPrefix), MSG_WAITALL);
             if (lenPrefix <= 0) {
                 break;
             }
@@ -637,7 +644,7 @@ void tcp_as_controller_task(void *arg) {
                 continue; // Maybe break? Seems exessive to break connection.
             }
 
-            ssize_t len = recv(sock, recvBuffer, recvPrefix & 0xFFFF, 0);
+            ssize_t len = recv(sock, recvBuffer, recvPrefix & 0xFFFF, MSG_WAITALL);
             if (len <= 0)
             {
                 printf("TCP[%s]: disconnected errno=%d\n", serverIP, errno);
@@ -698,6 +705,7 @@ void EthernetTask::begin() {
     vTaskDelay(pdMS_TO_TICKS(1000));
     xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
     xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
+    xTaskCreate(tcp_as_controller_task, "tcp_eth1", 8192, &tcpConfig, 12, nullptr);
     xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfig, 12, nullptr);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
