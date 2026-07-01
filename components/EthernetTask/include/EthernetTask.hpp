@@ -35,6 +35,7 @@ public:
     void begin();
 
     bool isLinkUp(int ix);
+    static bool isLinkUp(esp_netif_t* netifInstance);
     void printIP();
 
 private:

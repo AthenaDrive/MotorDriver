@@ -735,6 +735,20 @@ bool EthernetTask::isLinkUp(int ix) {
     return false;
 }
 
+bool isLinkUp(esp_netif_t* netifInstance) {
+    char ifname[8];
+    esp_err_t err = esp_netif_get_netif_impl_name(netifInstance, ifname);
+
+    if (err == ESP_OK) {
+        struct netif* n = netif_find(ifname);
+        if (n && netif_is_link_up(n)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void EthernetTask::printIP() {
     esp_netif_ip_info_t ip;
     char ip_s[16], mask_s[16];
