@@ -9,6 +9,7 @@
 #include "esp_netif.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "sys/select.h"
 #include "lwip/netif.h"
 
 void udp_as_controller_task(void *arg) {
@@ -563,6 +564,7 @@ void tcp_as_peripheral_task(void *arg) {
 
             }
 
+            printf("Sending %li bytes.\n", len - inBufCommandOffset);
             globalVariableManager.setTcpFromControllerBuffer(message + inBufCommandOffset, len - inBufCommandOffset);
 
             auto newLenght = globalVariableManager.getTcpFromPeripheralBuffer(outBuf + outBufOffset, outBufCapacity - outBufOffset);
@@ -594,13 +596,14 @@ void tcp_as_controller_task(void *arg) {
     server_addr.sin_addr.s_addr = inet_addr(serverIP);
     server_addr.sin_port = htons(TCP_SERVER_PORT);
 
-    int sock;
+    constexpr uint32_t bufCapacity = 1024;
+    uint8_t sendBuffer[bufCapacity];
+    uint8_t recvBuffer[bufCapacity];
+    uint32_t recvPrefix;
 
-    while (1)
-    {
-        sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-        if (sock < 0)
-        {
+    while (1) {
+        int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+        if (sock < 0) {
             printf("TCP[%s]: socket() errno=%d\n", serverIP, errno);
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
@@ -608,8 +611,7 @@ void tcp_as_controller_task(void *arg) {
 
         printf("TCP[%s]: connecting...\n", serverIP);
 
-        if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-        {
+        if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
             printf("TCP[%s]: connect() errno=%d\n", serverIP, errno);
             close(sock);
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -618,51 +620,54 @@ void tcp_as_controller_task(void *arg) {
 
         printf("TCP[%s] connected!\n", serverIP);
 
-
-        uint32_t recvPrefix;
-        constexpr uint32_t recvBufferCapacity = 1024;
-        uint8_t recvBuffer[recvBufferCapacity];
-
-        constexpr uint32_t sendBufferCapacity = 1024;
-        uint8_t sendBuffer[sendBufferCapacity];
-        uint32_t sendBufferSize = 0;
-        while (1)
-        {
-
-            sendBufferSize = globalVariableManager.getTcpFromControllerBuffer(sendBuffer, sendBufferCapacity);
-            if (sendBufferSize > 0) {
-                ssize_t lenSent = send(sock, sendBuffer, sendBufferSize, 0);
+        while (1) {
+            uint32_t sendSize = globalVariableManager.getTcpFromControllerBuffer(sendBuffer, bufCapacity);
+            if (sendSize > 0) {
+                ssize_t lenSent = send(sock, sendBuffer, sendSize, 0);
+                if (lenSent < 0) {
+                    printf("TCP[%s]: send() errno=%d\n", serverIP, errno);
+                    break;
+                }
             }
 
-            // Should not use MSG_WAITALL, TODO!
-            ssize_t lenPrefix = recv(sock, &recvPrefix, sizeof(recvPrefix), MSG_WAITALL);
-            if (lenPrefix <= 0) {
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(sock, &readfds);
+            struct timeval tv = {0, 0};
+
+            int sel = select(sock + 1, &readfds, NULL, NULL, &tv);
+            if (sel < 0) {
+                printf("TCP[%s]: select() errno=%d\n", serverIP, errno);
                 break;
             }
 
-            if ((recvPrefix >> 16) != 63609) {
-                // Out of sync..? Problem for later!
-                continue; // Maybe break? Seems exessive to break connection.
+            if (sel > 0) {
+                ssize_t lenPrefix = recv(sock, &recvPrefix, sizeof(recvPrefix), MSG_WAITALL);
+                if (lenPrefix <= 0) {
+                    break;
+                }
+
+                if ((recvPrefix >> 16) != 63609) {
+                    continue;
+                }
+
+                ssize_t len = recv(sock, recvBuffer, recvPrefix & 0xFFFF, MSG_WAITALL);
+                if (len <= 0) {
+                    printf("TCP[%s]: disconnected errno=%d\n", serverIP, errno);
+                    break;
+                }
+
+                if (len == (recvPrefix & 0xFFFF)) {
+                    globalVariableManager.setTcpFromPeripheralBuffer(recvBuffer, len);
+                }
             }
 
-            ssize_t len = recv(sock, recvBuffer, recvPrefix & 0xFFFF, MSG_WAITALL);
-            if (len <= 0)
-            {
-                printf("TCP[%s]: disconnected errno=%d\n", serverIP, errno);
-                break;
-            }
-
-            // Not tested yet! Also, not implemented tcp_as_peripheral side.
-            // Also, should probably have one task to read as controller and another to write as controller.
-            if (len == (recvPrefix & 0xFFFF)) {
-                globalVariableManager.setTcpFromPeripheralBuffer(recvBuffer, len);
-            }
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
 
         close(sock);
-
         printf("TCP[%s]: reconnecting...\n", serverIP);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -704,7 +709,7 @@ void EthernetTask::begin() {
     };
 
     _TaskConfigTCP tcpConfigController {
-        .bindIP = _config.cW5500_1_IP,
+        .bindIP = _config.cW5500_0_IP,
         .TCP_PORT = _config.cTCP_LISTEN_PORT,
     };
 
