@@ -109,7 +109,6 @@ void udp_as_peripheral_task(void *arg) {
     uint8_t recvPacket[packetBufferSize + maxRecvBuffer];
 
     while (1) {
-        iteration++;
         offset = 0;
 
         // Send to upstream
@@ -124,70 +123,66 @@ void udp_as_peripheral_task(void *arg) {
                 switch (i)
                 {
                     case 0: {
-                        memcpy(packet + offset, &iteration, 4);
-                    } break;
-
-                    case 1: {
                         uint32_t time = static_cast<uint32_t>(esp_timer_get_time() / 1000);
                         memcpy(packet + offset, &time, 4);
                     } break;
 
-                    case 2: {
+                    case 1: {
                         float pos = globalVariableManager.getAngle();
                         memcpy(packet + offset, &pos, 4);
                     } break;
 
-                    case 3: {
+                    case 2: {
                         float vel = globalVariableManager.getVelocity();
                         memcpy(packet + offset, &vel, 4);
                     } break;
 
-                    case 4: {
+                    case 3: {
                         float acc = globalVariableManager.getAcceleration();
                         memcpy(packet + offset, &acc, 4);
                     } break;
 
-                    case 5: {
+                    case 4: {
                         float torque = globalVariableManager.getTorque();
                         memcpy(packet + offset, &torque, 4);
                     } break;
 
-                    case 6: {
+                    case 5: {
                         float phaseA = globalVariableManager.getIa();
                         memcpy(packet + offset, &phaseA, 4);
                     } break;
 
-                    case 7: {
+                    case 6: {
                         float phaseB = globalVariableManager.getIb();
                         memcpy(packet + offset, &phaseB, 4);
                     } break;
 
-                    case 8: {
+                    case 7: {
                         float phaseC = globalVariableManager.getIc();
                         memcpy(packet + offset, &phaseC, 4);
                     } break;
 
-                    case 9: {
-                        uint32_t busCurrent = globalVariableManager.getBusCurrent();
+                    case 8: {
+                        float busCurrent = globalVariableManager.getBusCurrent();
                         memcpy(packet + offset, &busCurrent, 4);
                     } break;
 
-                    case 10: {
-                        uint32_t busVoltage = globalVariableManager.getBusVoltage();
+                    case 9: {
+                        float busVoltage = globalVariableManager.getBusVoltage();
                         memcpy(packet + offset, &busVoltage, 4);
                     } break;
 
-                    case 11: {
+                    case 10: {
                         uint32_t errorRegister = 0; // TODO!
                         memcpy(packet + offset, &errorRegister, 4);
                     } break;
 
-                    case 12: {
+                    case 11: {
                         uint32_t loopTimeFOC = globalVariableManager.getAvgLoopTimeFOC();
                         memcpy(packet + offset, &loopTimeFOC, 4);
                     } break;
 
-                    case 13: {
+                    case 12: {
                         uint32_t loopTimeSecondary = globalVariableManager.getAvgLoopTimeSecondary();
                         memcpy(packet + offset, &loopTimeSecondary, 4);
                     } break;
@@ -204,7 +199,8 @@ void udp_as_peripheral_task(void *arg) {
         recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + offset, maxRecvBuffer);
         int sent = sendto(sock, packet, offset + recvBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if (sent < 0) {
-            printf("UDP[%s]: sendto() errno=%d\n", bindIP, errno);
+            // printf("UDP[%s]: sendto() errno=%d\n", bindIP, errno);
+            // Some error (maybe no link)
         }
 
         // Read from upstream
@@ -329,6 +325,7 @@ void tcp_as_peripheral_task(void *arg) {
             }
 
             if ((lengthPrefix >> 16) != 63609) {
+                printf("TCP out of sync?\n");
                 // Out of sync..? Problem for later!
                 continue; // Maybe break? Seems exessive to break connection.
             }
@@ -362,6 +359,8 @@ void tcp_as_peripheral_task(void *arg) {
 
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
+
+                    printf("Setting bit %i \n", i);
 
                     switch (i)
                     {
@@ -478,7 +477,7 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 20: {
-                            uint32_t errorFlags;
+                            uint32_t errorFlags = 0; // TODO!
                             memcpy(&errorFlags, message + inBufCommandOffset, 4);
                             globalVariableManager.setErrorFlags(errorFlags);
                         } break;
@@ -495,6 +494,8 @@ void tcp_as_peripheral_task(void *arg) {
 
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
+
+                    printf("Reading bit %i \n", i);
 
                     switch (i)
                     {
@@ -519,12 +520,12 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 5: {
-                            uint32_t currentLimitBus = globalVariableManager.getCurrentLimitBus();
+                            float currentLimitBus = globalVariableManager.getCurrentLimitBus();
                             memcpy(outBuf + outBufOffset, &currentLimitBus, 4);
                         } break;
 
                         case 6: {
-                            uint32_t currentLimitPhase = globalVariableManager.getCurrentLimitPhase();
+                            float currentLimitPhase = globalVariableManager.getCurrentLimitPhase();
                             memcpy(outBuf + outBufOffset, &currentLimitPhase, 4);
                         } break;
 
@@ -685,28 +686,33 @@ EthernetTask::EthernetTask(EthernetTaskConfig &config)
 }
 
 void EthernetTask::begin() {
-    _TaskConfigUDP udpConfigPeripheral{
+    _TaskConfigUDP udpConfigPeripheral {
         .bindIP = _config.cW5500_0_IP,
         .destionationIP = _config.cW5500_1_IP,
         .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
     };
 
-    _TaskConfigUDP udpConfigController{
+    _TaskConfigUDP udpConfigController {
         .bindIP = _config.cW5500_1_IP,
         .destionationIP = _config.cW5500_0_IP,
         .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
     };
 
-    _TaskConfigTCP tcpConfig{
+    _TaskConfigTCP tcpConfigPeripheral {
         .bindIP = _config.cW5500_0_IP,
+        .TCP_PORT = _config.cTCP_LISTEN_PORT,
+    };
+
+    _TaskConfigTCP tcpConfigController {
+        .bindIP = _config.cW5500_1_IP,
         .TCP_PORT = _config.cTCP_LISTEN_PORT,
     };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
     xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
     xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
-    xTaskCreate(tcp_as_controller_task, "tcp_eth1", 8192, &tcpConfig, 12, nullptr);
-    xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfig, 12, nullptr);
+    xTaskCreate(tcp_as_controller_task, "tcp_eth1", 8192, &tcpConfigController, 12, nullptr);
+    xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfigPeripheral, 12, nullptr);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
@@ -735,7 +741,7 @@ bool EthernetTask::isLinkUp(int ix) {
     return false;
 }
 
-bool isLinkUp(esp_netif_t* netifInstance) {
+bool EthernetTask::isLinkUp(esp_netif_t* netifInstance) {
     char ifname[8];
     esp_err_t err = esp_netif_get_netif_impl_name(netifInstance, ifname);
 

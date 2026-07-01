@@ -65,6 +65,7 @@ static void adc_sampling_task(void *arg) {
 }
 
 extern "C" void app_main(void) {
+    globalVariableManager.setUdpAsPeripheralHeader(0b11111);
 
     // --- I2C bus & sensors ---
     I2CBase i2c(PIN_SDA, PIN_SCL, I2C_FREQ);
@@ -174,7 +175,6 @@ extern "C" void app_main(void) {
         printf("Register %i: %i\n", i, drvReg);
     }
     
-
     while (1) {
         bool switchSignal = false;
         mcp.digital_read(MCP_PIN_A3, switchSignal);
