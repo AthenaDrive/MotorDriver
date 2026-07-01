@@ -65,7 +65,6 @@ static void adc_sampling_task(void *arg) {
 }
 
 extern "C" void app_main(void) {
-    globalVariableManager.setUdpAsPeripheralHeader(0b11111);
 
     // --- I2C bus & sensors ---
     I2CBase i2c(PIN_SDA, PIN_SCL, I2C_FREQ);
