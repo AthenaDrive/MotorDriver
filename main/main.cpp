@@ -65,7 +65,6 @@ static void adc_sampling_task(void *arg) {
 }
 
 extern "C" void app_main(void) {
-    globalVariableManager.setUdpAsPeripheralHeader(0b11111);
 
     // --- I2C bus & sensors ---
     I2CBase i2c(PIN_SDA, PIN_SCL, I2C_FREQ);
@@ -179,6 +178,7 @@ extern "C" void app_main(void) {
         bool switchSignal = false;
         mcp.digital_read(MCP_PIN_A3, switchSignal);
         mcp.digital_write(MCP_PIN_A0, switchSignal);
+        globalVariableManager.setLedStatus(switchSignal);
 
         // Example: ramp duty on all 3 phases from 0% to 50%
         static float duty = 0.0f;

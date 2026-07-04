@@ -573,7 +573,12 @@ void tcp_as_peripheral_task(void *arg) {
             memcpy(outBuf, &outgoingLengthPrefix, 4);
 
             int sent = send(client_sock, outBuf, outBufOffset + newLenght, 0);
-            // printf("Sent %d bytes of data.\n", sent);
+            printf("Sent %d bytes of data. Newlength: %lu\n", sent, newLenght);
+            for (int ixOutBuf = 0; ixOutBuf < outBufOffset + newLenght; ixOutBuf++) {
+                printf("%u, ", outBuf[ixOutBuf]);
+            }
+            printf("\n");
+
             if (sent < 0) {
                 printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
                 break;
@@ -709,7 +714,7 @@ void EthernetTask::begin() {
     };
 
     _TaskConfigTCP tcpConfigController {
-        .bindIP = _config.cW5500_0_IP,
+        .bindIP = _config.cW5500_1_IP,
         .TCP_PORT = _config.cTCP_LISTEN_PORT,
     };
 
@@ -717,7 +722,7 @@ void EthernetTask::begin() {
     xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
     xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
     xTaskCreate(tcp_as_controller_task, "tcp_eth1", 8192, &tcpConfigController, 12, nullptr);
-    xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfigPeripheral, 12, nullptr);
+    // xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfigPeripheral, 12, nullptr);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
