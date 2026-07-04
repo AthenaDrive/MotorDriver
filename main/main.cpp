@@ -134,13 +134,13 @@ extern "C" void app_main(void) {
         .cW5500_1_CS = W5500_1_CS,
         .cW5500_0_INT = W5500_0_INT,
         .cW5500_1_INT = W5500_1_INT,
-        .cW5500_0_IP = W5500_0_IP,
-        .cW5500_0_GW = W5500_0_GW,
-        .cW5500_1_IP = W5500_1_IP,
-        .cW5500_1_GW = W5500_1_GW,
         .cW5500_NETMASK = W5500_NETMASK,
+        .cW5500_GW = W5500_GW,
         .cTCP_LISTEN_PORT = TCP_LISTEN_PORT,
         .cUDP_DESTINATION_PORT = UDP_DEST_PORT,
+        .cUseAutoIP = W5500_USE_AUTO_IP,
+        .cDiscRetries = DISC_RETRIES,
+        .cDiscTimeoutMs = DISC_TIMEOUT_MS,
     };
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();

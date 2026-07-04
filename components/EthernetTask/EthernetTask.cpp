@@ -2,6 +2,7 @@
 #include <bitset>
 
 #include "EthernetTask.hpp"
+#include "Discovery.hpp"
 #include "GlobalVariableManager.hpp"
 
 #include "esp_timer.h"
@@ -11,11 +12,33 @@
 #include "lwip/netdb.h"
 #include "sys/select.h"
 #include "lwip/netif.h"
+#include <net/if.h>
 
+static void bind_socket_to_netif(int sock, const char *ifKey) {
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey(ifKey);
+    if (!netif) {
+        printf("bind_to_netif: ifKey '%s' not found\n", ifKey);
+        return;
+    }
+    char ifname[16];
+    if (esp_netif_get_netif_impl_name(netif, ifname) != ESP_OK) {
+        printf("bind_to_netif: get_impl_name failed for '%s'\n", ifKey);
+        return;
+    }
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+    if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) < 0) {
+        printf("SO_BINDTODEVICE(%s): errno=%d\n", ifname, errno);
+    }
+}
+
+// ---- UDP Controller (ETH_1 - upstream port) ----
 void udp_as_controller_task(void *arg) {
     _TaskConfigUDP* args = static_cast<_TaskConfigUDP*>(arg);
     const char* bindIP = args->bindIP;
     const char* UDP_DEST_IP = args->destionationIP;
+    const char* ifKey = args->ifKey;
     uint16_t UDP_DEST_PORT = args->UDP_DESTINATION_PORT;
 
     struct sockaddr_in bind_addr = {};
@@ -29,6 +52,7 @@ void udp_as_controller_task(void *arg) {
         vTaskDelete(nullptr);
     }
 
+    bind_socket_to_netif(sock, ifKey);
     bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
 
     struct sockaddr_in dest_addr = {};
@@ -44,16 +68,14 @@ void udp_as_controller_task(void *arg) {
     uint32_t sendBufferSize = 0;
 
     while (1) {
-        // Read from downstream
         ssize_t lenRecv = recvfrom(sock, recvBuffer, sizeof(recvBuffer), MSG_DONTWAIT, NULL, NULL);
         if (lenRecv > 0) {
-            ssize_t lenSent = globalVariableManager.setUdpFromPeripheralBuffer(recvBuffer, lenRecv);
+            globalVariableManager.setUdpFromPeripheralBuffer(recvBuffer, lenRecv);
         }
 
-        // Write to downstream
-        sendBufferSize = globalVariableManager.getUdpFromControllerBuffer(sendBuffer, sendBufferCapacity);
+        sendBufferSize = globalVariableManager.getUdpFromControllerBuffer(sendBuffer, sendBufferCapacity, true);
         if (sendBufferSize > 0) {
-            ssize_t lenSent = sendto(sock, sendBuffer, sendBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+            sendto(sock, sendBuffer, sendBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -63,10 +85,12 @@ void udp_as_controller_task(void *arg) {
     vTaskDelete(nullptr);
 }
 
+    // ---- UDP Peripheral (ETH_0 - upstream port) ----
 void udp_as_peripheral_task(void *arg) {
     _TaskConfigUDP* args = static_cast<_TaskConfigUDP*>(arg);
     const char* bindIP = args->bindIP;
     const char* UDP_DEST_IP = args->destionationIP;
+    const char* ifKey = args->ifKey;
     uint16_t UDP_DEST_PORT = args->UDP_DESTINATION_PORT;
 
     struct sockaddr_in bind_addr = {};
@@ -80,6 +104,7 @@ void udp_as_peripheral_task(void *arg) {
         vTaskDelete(nullptr);
     }
 
+    bind_socket_to_netif(sock, ifKey);
     bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
 
     struct sockaddr_in dest_addr = {};
@@ -89,14 +114,7 @@ void udp_as_peripheral_task(void *arg) {
 
     printf("UDP sender %s -> %s:%d\n", bindIP, UDP_DEST_IP, UDP_DEST_PORT);
 
-    // Packet to controller will probably never be this big.
-    // As of 18/06/26, excel protocol gives a max size of 60 bytes.
     constexpr uint32_t packetBufferSize = 128;
-
-    // Gives a lower bound of max motors downstream.
-    // Motors probably uses less than packetBufferSize,
-    // This therefore *probably* gives 32+ motors.
-    // But only 17 is guaranteed (16 + this one).
     constexpr uint32_t maxRecvBuffer = packetBufferSize * 16;
     uint8_t packet[packetBufferSize + maxRecvBuffer];
 
@@ -112,7 +130,6 @@ void udp_as_peripheral_task(void *arg) {
     while (1) {
         offset = 0;
 
-        // Send to upstream
         header = globalVariableManager.getUdpAsPeripheralHeader();
 
         memcpy(packet + offset, &header, 4);
@@ -174,7 +191,7 @@ void udp_as_peripheral_task(void *arg) {
                     } break;
 
                     case 10: {
-                        uint32_t errorRegister = 0; // TODO!
+                        uint32_t errorRegister = 0;
                         memcpy(packet + offset, &errorRegister, 4);
                     } break;
 
@@ -187,28 +204,25 @@ void udp_as_peripheral_task(void *arg) {
                         uint32_t loopTimeSecondary = globalVariableManager.getAvgLoopTimeSecondary();
                         memcpy(packet + offset, &loopTimeSecondary, 4);
                     } break;
-                
+
                     default: {
-                        // Invalid header or comm protocol updated.
                     } break;
                 }
-            
+
                 offset += 4;
             }
         }
 
-        recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + offset, maxRecvBuffer);
+        recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + offset, maxRecvBuffer, true);
         int sent = sendto(sock, packet, offset + recvBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         if (sent < 0) {
-            // printf("UDP[%s]: sendto() errno=%d\n", bindIP, errno);
-            // Some error (maybe no link)
+            // Fucky wucky!
         }
 
-        // Read from upstream
         recvOffset = 0;
         ssize_t lenRecv = recvfrom(sock, recvPacket, sizeof(recvPacket), MSG_DONTWAIT, NULL, NULL);
         if (lenRecv > 0) {
-            
+
             memcpy(&recvHeader, recvPacket + recvOffset, 4);
             recvOffset += 4;
 
@@ -234,21 +248,19 @@ void udp_as_peripheral_task(void *arg) {
                             memcpy(&positionSetpoint, recvPacket + recvOffset, 4);
                             globalVariableManager.setPositionSetpoint(positionSetpoint);
                         } break;
-                    
+
                         default: {
-                            // Invalid header or comm protocol updated.
                         } break;
                         }
 
                     recvOffset += 4;
                 }
             }
-        
+
             if (lenRecv > recvOffset) {
                 globalVariableManager.setUdpFromControllerBuffer(recvPacket + recvOffset, lenRecv - recvOffset);
             }
         }
-
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -257,9 +269,11 @@ void udp_as_peripheral_task(void *arg) {
     vTaskDelete(nullptr);
 }
 
+// ---- TCP Peripheral (ETH_0 - downstream listener) ----
 void tcp_as_peripheral_task(void *arg) {
     _TaskConfigTCP* args = static_cast<_TaskConfigTCP*>(arg);
     const char* bindIP = args->bindIP;
+    const char* ifKey = args->ifKey;
     uint16_t TCP_LISTEN_PORT = args->TCP_PORT;
 
     struct sockaddr_in bind_addr = {};
@@ -275,6 +289,8 @@ void tcp_as_peripheral_task(void *arg) {
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
+
+        bind_socket_to_netif(listen_sock, ifKey);
 
         int opt = 1;
         setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -327,8 +343,7 @@ void tcp_as_peripheral_task(void *arg) {
 
             if ((lengthPrefix >> 16) != 63609) {
                 printf("TCP out of sync?\n");
-                // Out of sync..? Problem for later!
-                continue; // Maybe break? Seems exessive to break connection.
+                continue;
             }
 
             uint8_t message[lengthPrefix & 0xFFFF];
@@ -340,7 +355,6 @@ void tcp_as_peripheral_task(void *arg) {
             }
 
             if (len < 4) {
-                // Ouf of sync..? Problem for later!
                 printf("TCP[%s]: Invalid header (len: %d < 4)\n", bindIP, len);
                 continue;
             }
@@ -356,8 +370,6 @@ void tcp_as_peripheral_task(void *arg) {
 
             inBufCommandOffset = 4;
             if (headerBits[0]) {
-                // Command
-
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
 
@@ -384,7 +396,6 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 4: {
-                            // torqueKi, not used.
                         } break;
 
                         case 5: {
@@ -478,11 +489,11 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 20: {
-                            uint32_t errorFlags = 0; // TODO!
+                            uint32_t errorFlags = 0;
                             memcpy(&errorFlags, message + inBufCommandOffset, 4);
                             globalVariableManager.setErrorFlags(errorFlags);
                         } break;
-                    
+
                     default:
                         break;
                     }
@@ -491,8 +502,6 @@ void tcp_as_peripheral_task(void *arg) {
                 }
 
             } else {
-                // Reading data
-
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
 
@@ -554,7 +563,7 @@ void tcp_as_peripheral_task(void *arg) {
                             uint32_t errorFlags = globalVariableManager.getErrorFlags();
                             memcpy(outBuf + outBufOffset, &errorFlags, 4);
                         } break;
-                    
+
                     default:
                         break;
                     }
@@ -567,7 +576,7 @@ void tcp_as_peripheral_task(void *arg) {
             printf("Sending %li bytes.\n", len - inBufCommandOffset);
             globalVariableManager.setTcpFromControllerBuffer(message + inBufCommandOffset, len - inBufCommandOffset);
 
-            auto newLenght = globalVariableManager.getTcpFromPeripheralBuffer(outBuf + outBufOffset, outBufCapacity - outBufOffset);
+            auto newLenght = globalVariableManager.getTcpFromPeripheralBuffer(outBuf + outBufOffset, outBufCapacity - outBufOffset, true);
 
             outgoingLengthPrefix += outBufOffset + newLenght - 4;
             memcpy(outBuf, &outgoingLengthPrefix, 4);
@@ -590,10 +599,12 @@ void tcp_as_peripheral_task(void *arg) {
     }
 }
 
+// ---- TCP Controller (ETH_1 - upstream connector) ----
 void tcp_as_controller_task(void *arg) {
     _TaskConfigTCP* args = static_cast<_TaskConfigTCP*>(arg);
 
     const char* serverIP = args->bindIP;
+    const char* ifKey = args->ifKey;
     uint16_t TCP_SERVER_PORT = args->TCP_PORT;
 
     struct sockaddr_in server_addr = {};
@@ -614,6 +625,8 @@ void tcp_as_controller_task(void *arg) {
             continue;
         }
 
+        bind_socket_to_netif(sock, ifKey);
+
         printf("TCP[%s]: connecting...\n", serverIP);
 
         if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -626,7 +639,7 @@ void tcp_as_controller_task(void *arg) {
         printf("TCP[%s] connected!\n", serverIP);
 
         while (1) {
-            uint32_t sendSize = globalVariableManager.getTcpFromControllerBuffer(sendBuffer, bufCapacity);
+            uint32_t sendSize = globalVariableManager.getTcpFromControllerBuffer(sendBuffer, bufCapacity, true);
             if (sendSize > 0) {
                 ssize_t lenSent = send(sock, sendBuffer, sendSize, 0);
                 if (lenSent < 0) {
@@ -676,10 +689,16 @@ void tcp_as_controller_task(void *arg) {
     }
 }
 
+// ============================================================
+// EthernetTask implementation
+// ============================================================
+
 EthernetTask::EthernetTask(EthernetTaskConfig &config)
     : _config(config),
+      _boardPosition(-1),
       _eth0(config.cW5500_0_CS, config.cW5500_0_INT, 0),
       _eth1(config.cW5500_1_CS, config.cW5500_1_INT, 1) {
+
     gpio_set_level(config.cW5500_0_CS, 1);
     gpio_set_level(config.cW5500_1_CS, 1);
     gpio_set_direction(config.cW5500_0_CS, GPIO_MODE_OUTPUT);
@@ -691,44 +710,110 @@ EthernetTask::EthernetTask(EthernetTaskConfig &config)
     ESP_ERROR_CHECK(_eth0.init());
     ESP_ERROR_CHECK(_eth1.init());
 
-    _eth0.set_static_ip(config.cW5500_0_IP, config.cW5500_NETMASK, config.cW5500_0_GW);
-    _eth1.set_static_ip(config.cW5500_1_IP, config.cW5500_NETMASK, config.cW5500_1_GW);
+    // Set temporary IPs to prevent DHCP from running during discovery.
+    // These will be overwritten in begin() after discovery completes.
+    _eth0.set_static_ip("192.168.0.200", _config.cW5500_NETMASK, _config.cW5500_GW);
+    _eth1.set_static_ip("192.168.0.201", _config.cW5500_NETMASK, _config.cW5500_GW);
 }
 
 void EthernetTask::begin() {
-    _TaskConfigUDP udpConfigPeripheral {
-        .bindIP = _config.cW5500_0_IP,
-        .destionationIP = _config.cW5500_1_IP,
-        .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
-    };
+    // -------------------------------------------------------
+    // Phase 1: Discover board position (or use static config)
+    // -------------------------------------------------------
+    if (_config.cUseAutoIP) {
+        printf("ETH: Starting auto-IP discovery...\n");
+        _boardPosition = discovery_run(_config.cDiscRetries, _config.cDiscTimeoutMs);
+        printf("ETH: Board position = %d\n", _boardPosition);
+    } else {
+        _boardPosition = 0;
+    }
 
+    // -------------------------------------------------------
+    // Phase 2: Configure IPs from position
+    // -------------------------------------------------------
+    // IP scheme: PC=192.168.0.1
+    //   Board N: ETH_1 = 192.168.0.(N*2+2)
+    //            ETH_0 = 192.168.0.(N*2+3)
+    // -------------------------------------------------------
+    {
+        // ETH_0 = upstream (faces PC/previous board), gets lower IP
+        // ETH_1 = downstream (faces next board), gets higher IP
+        snprintf(_eth0_ip, sizeof(_eth0_ip), "192.168.0.%u", (unsigned)(_boardPosition * 2 + 2));
+        snprintf(_eth1_ip, sizeof(_eth1_ip), "192.168.0.%u", (unsigned)(_boardPosition * 2 + 3));
+        _eth0.set_static_ip(_eth0_ip, _config.cW5500_NETMASK, _config.cW5500_GW);
+        _eth1.set_static_ip(_eth1_ip, _config.cW5500_NETMASK, _config.cW5500_GW);
+    }
+
+    printf("ETH: Configured IPs — ETH_0=%s  ETH_1=%s\n", _eth0_ip, _eth1_ip);
+
+    // -------------------------------------------------------
+    // Phase 3: Start discovery responder on ETH_1 (downstream, faces next board)
+    // -------------------------------------------------------
+    if (_config.cUseAutoIP) {
+        discovery_start_responder(_boardPosition);
+    }
+
+    // -------------------------------------------------------
+    // Phase 4: Compute daisy-chain destination IPs
+    // -------------------------------------------------------
+    // UDP peripheral (telemetry) on ETH_0 sends upstream → PC (or previous board)
+    // UDP controller (relay) on ETH_1 sends downstream → next board
+    // -------------------------------------------------------
+    if (_boardPosition == 0) {
+        snprintf(_controllerDestIP, sizeof(_controllerDestIP), "192.168.0.1");
+    } else {
+        snprintf(_controllerDestIP, sizeof(_controllerDestIP), "192.168.0.%u",
+                 (unsigned)((_boardPosition - 1) * 2 + 3));
+    }
+
+    snprintf(_peripheralDestIP, sizeof(_peripheralDestIP), "192.168.0.%u",
+             (unsigned)((_boardPosition + 1) * 2 + 2));
+
+    printf("ETH: Controller dest=%s  Peripheral dest=%s\n", _controllerDestIP, _peripheralDestIP);
+
+    // -------------------------------------------------------
+    // Phase 5: Build task configs and spawn tasks
+    // -------------------------------------------------------
+    // ETH_0 = upstream (faces PC) → UDP peripheral (telemetry), TCP server (PC connects to us)
+    // ETH_1 = downstream (faces next board) → UDP controller (relay), TCP client (we connect to next board)
     _TaskConfigUDP udpConfigController {
-        .bindIP = _config.cW5500_1_IP,
-        .destionationIP = _config.cW5500_0_IP,
+        .bindIP = _eth0_ip,
+        .destionationIP = _controllerDestIP,
         .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
+        .ifKey = "ETH_0",
     };
 
-    _TaskConfigTCP tcpConfigPeripheral {
-        .bindIP = _config.cW5500_0_IP,
-        .TCP_PORT = _config.cTCP_LISTEN_PORT,
+    _TaskConfigUDP udpConfigPeripheral {
+        .bindIP = _eth1_ip,
+        .destionationIP = _peripheralDestIP,
+        .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
+        .ifKey = "ETH_1",
     };
 
-    _TaskConfigTCP tcpConfigController {
-        .bindIP = _config.cW5500_1_IP,
+    // TCP server on ETH_0 — PC connects TO us
+    _TaskConfigTCP tcpConfigServer {
+        .bindIP = _eth0_ip,
         .TCP_PORT = _config.cTCP_LISTEN_PORT,
+        .ifKey = "ETH_0",
+    };
+
+    // TCP client on ETH_1 — we connect TO the next board's server (ETH_0)
+    _TaskConfigTCP tcpConfigClient {
+        .bindIP = _peripheralDestIP,      // next board's ETH_0 IP (server)
+        .TCP_PORT = _config.cTCP_LISTEN_PORT,
+        .ifKey = "ETH_1",
     };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigController, 12, nullptr);
-    xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigPeripheral, 12, nullptr);
-    xTaskCreate(tcp_as_controller_task, "tcp_eth1", 8192, &tcpConfigController, 12, nullptr);
-    // xTaskCreate(tcp_as_peripheral_task, "tcp_eth0", 8192, &tcpConfigPeripheral, 12, nullptr);
+    xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigController, 12, nullptr);
+    xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigPeripheral, 12, nullptr);
+    xTaskCreate(tcp_as_peripheral_task, "tcp_srv", 8192, &tcpConfigServer, 12, nullptr);
+    xTaskCreate(tcp_as_controller_task, "tcp_cli", 8192, &tcpConfigClient, 12, nullptr);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
 bool EthernetTask::isLinkUp(int ix) {
-    char ifname[8];
-
+    char ifname[16];
     esp_err_t err;
     if (ix == 0) {
         err = esp_netif_get_netif_impl_name(_eth0.netif(), ifname);
@@ -740,28 +825,22 @@ bool EthernetTask::isLinkUp(int ix) {
 
     if (err == ESP_OK) {
         struct netif *n = netif_find(ifname);
-
         if (n && netif_is_link_up(n)) {
             return true;
-        } else {
-            return false;
         }
     }
-
     return false;
 }
 
 bool EthernetTask::isLinkUp(esp_netif_t* netifInstance) {
-    char ifname[8];
+    char ifname[16];
     esp_err_t err = esp_netif_get_netif_impl_name(netifInstance, ifname);
-
     if (err == ESP_OK) {
         struct netif* n = netif_find(ifname);
         if (n && netif_is_link_up(n)) {
             return true;
         }
     }
-
     return false;
 }
 
