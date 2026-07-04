@@ -52,7 +52,7 @@ with open(f"{path}/include/{fileName}.hpp", "w+") as header:
 
         if (var[0] == "Buffer"):
             header.writelines([
-                f"    uint32_t get{name}(uint8_t* value, uint32_t capacity, bool empty);\n",
+                f"    uint32_t get{name}(uint8_t* value, uint32_t capacity, bool empty = false);\n",
                 f"    uint32_t set{name}(const uint8_t* value, uint32_t valueSize);\n"
             ])
 
