@@ -62,14 +62,17 @@ void GlobalVariableManager::setUdpAsPeripheralHeader(uint32_t value) {
     _udpAsPeripheralHeader.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity) {
+uint32_t GlobalVariableManager::getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity, bool empty) {
     if (capacity < _udpFromPeripheralBufferSize) {
         return 0;
     }
     
     std::lock_guard<std::mutex> lock(_udpFromPeripheralBufferMutex);
     memcpy(value, _udpFromPeripheralBuffer, _udpFromPeripheralBufferSize);
-    return _udpFromPeripheralBufferSize;
+    
+    uint32_t out = _udpFromPeripheralBufferSize;
+    if (empty) { _udpFromPeripheralBufferSize = 0; };
+    return out;
 }
 
 uint32_t GlobalVariableManager::setUdpFromPeripheralBuffer(const uint8_t* value, uint32_t capacity) {
@@ -83,14 +86,17 @@ uint32_t GlobalVariableManager::setUdpFromPeripheralBuffer(const uint8_t* value,
     return capacity;
 }
 
-uint32_t GlobalVariableManager::getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity) {
+uint32_t GlobalVariableManager::getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity, bool empty) {
     if (capacity < _udpFromControllerBufferSize) {
         return 0;
     }
     
     std::lock_guard<std::mutex> lock(_udpFromControllerBufferMutex);
     memcpy(value, _udpFromControllerBuffer, _udpFromControllerBufferSize);
-    return _udpFromControllerBufferSize;
+    
+    uint32_t out = _udpFromControllerBufferSize;
+    if (empty) { _udpFromControllerBufferSize = 0; };
+    return out;
 }
 
 uint32_t GlobalVariableManager::setUdpFromControllerBuffer(const uint8_t* value, uint32_t capacity) {
@@ -104,14 +110,17 @@ uint32_t GlobalVariableManager::setUdpFromControllerBuffer(const uint8_t* value,
     return capacity;
 }
 
-uint32_t GlobalVariableManager::getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity) {
+uint32_t GlobalVariableManager::getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity, bool empty) {
     if (capacity < _tcpFromPeripheralBufferSize) {
         return 0;
     }
     
     std::lock_guard<std::mutex> lock(_tcpFromPeripheralBufferMutex);
     memcpy(value, _tcpFromPeripheralBuffer, _tcpFromPeripheralBufferSize);
-    return _tcpFromPeripheralBufferSize;
+    
+    uint32_t out = _tcpFromPeripheralBufferSize;
+    if (empty) { _tcpFromPeripheralBufferSize = 0; };
+    return out;
 }
 
 uint32_t GlobalVariableManager::setTcpFromPeripheralBuffer(const uint8_t* value, uint32_t capacity) {
@@ -125,14 +134,17 @@ uint32_t GlobalVariableManager::setTcpFromPeripheralBuffer(const uint8_t* value,
     return capacity;
 }
 
-uint32_t GlobalVariableManager::getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity) {
+uint32_t GlobalVariableManager::getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity, bool empty) {
     if (capacity < _tcpFromControllerBufferSize) {
         return 0;
     }
     
     std::lock_guard<std::mutex> lock(_tcpFromControllerBufferMutex);
     memcpy(value, _tcpFromControllerBuffer, _tcpFromControllerBufferSize);
-    return _tcpFromControllerBufferSize;
+    
+    uint32_t out = _tcpFromControllerBufferSize;
+    if (empty) { _tcpFromControllerBufferSize = 0; };
+    return out;
 }
 
 uint32_t GlobalVariableManager::setTcpFromControllerBuffer(const uint8_t* value, uint32_t capacity) {

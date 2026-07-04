@@ -20,16 +20,16 @@ public:
     uint32_t getUdpAsPeripheralHeader();
     void setUdpAsPeripheralHeader(uint32_t value);
 
-    uint32_t getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity, bool empty);
     uint32_t setUdpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
 
-    uint32_t getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity, bool empty);
     uint32_t setUdpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
 
-    uint32_t getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity, bool empty);
     uint32_t setTcpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
 
-    uint32_t getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity);
+    uint32_t getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity, bool empty);
     uint32_t setTcpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
 
     uint32_t getNumPolePairs();

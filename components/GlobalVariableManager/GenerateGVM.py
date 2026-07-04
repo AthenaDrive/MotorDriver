@@ -52,7 +52,7 @@ with open(f"{path}/include/{fileName}.hpp", "w+") as header:
 
         if (var[0] == "Buffer"):
             header.writelines([
-                f"    uint32_t get{name}(uint8_t* value, uint32_t capacity);\n",
+                f"    uint32_t get{name}(uint8_t* value, uint32_t capacity, bool empty);\n",
                 f"    uint32_t set{name}(const uint8_t* value, uint32_t valueSize);\n"
             ])
 
@@ -143,14 +143,17 @@ with open(f"{path}/{fileName}.cpp", "w+") as source:
 
         if (var[0] == "Buffer"):
             source.writelines([
-                f"uint32_t GlobalVariableManager::get{name}(uint8_t* value, uint32_t capacity) {{\n",
+                f"uint32_t GlobalVariableManager::get{name}(uint8_t* value, uint32_t capacity, bool empty) {{\n",
                 f"    if (capacity < _{var[1]}Size) {{\n",
                 f"        return 0;\n",
                 f"    }}\n",
                 f"    \n",
                 f"    std::lock_guard<std::mutex> lock(_{var[1]}Mutex);\n",
                 f"    memcpy(value, _{var[1]}, _{var[1]}Size);\n",
-                f"    return _{var[1]}Size;\n",
+                f"    \n",
+                f"    uint32_t out = _{var[1]}Size;\n"
+                f"    if (empty) {{ _{var[1]}Size = 0; }};\n"
+                f"    return out;\n",
                 f"}}\n",
                 f"\n",
                 f"uint32_t GlobalVariableManager::set{name}(const uint8_t* value, uint32_t capacity) {{\n",
