@@ -249,9 +249,15 @@ void udp_as_peripheral_task(void *arg) {
                             globalVariableManager.setPositionSetpoint(positionSetpoint);
                         } break;
 
+                        case 3: {
+                            uint32_t drivingMode;
+                            memcpy(&drivingMode, recvPacket + recvOffset, 4);
+                            globalVariableManager.setDrivingMode(drivingMode);
+                        }
+
                         default: {
                         } break;
-                        }
+                    }
 
                     recvOffset += 4;
                 }
@@ -465,13 +471,13 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 16: {
-                            uint32_t currentLimitBus;
+                            float currentLimitBus;
                             memcpy(&currentLimitBus, message + inBufCommandOffset, 4);
                             globalVariableManager.setCurrentLimitBus(currentLimitBus);
                         } break;
 
                         case 17: {
-                            uint32_t currentLimitPhase;
+                            float currentLimitPhase;
                             memcpy(&currentLimitPhase, message + inBufCommandOffset, 4);
                             globalVariableManager.setCurrentLimitPhase(currentLimitPhase);
                         } break;
@@ -490,7 +496,8 @@ void tcp_as_peripheral_task(void *arg) {
 
                         case 20: {
                             uint32_t errorFlags = 0;
-                            memcpy(&errorFlags, message + inBufCommandOffset, 4);
+                            // Currently this clears the register, might be better to clear certain bits, or even set register?
+                            // memcpy(&errorFlags, message + inBufCommandOffset, 4);
                             globalVariableManager.setErrorFlags(errorFlags);
                         } break;
 

@@ -5,7 +5,6 @@
 #include <type_traits>
 
 struct UDPDataFromPeripheral {
-	uint32_t index;
 	uint32_t timestamp;
 	float position;
 	float velocity;
@@ -14,8 +13,8 @@ struct UDPDataFromPeripheral {
 	float phaseCurrentA;
 	float phaseCurrentB;
 	float phaseCurrentC;
-	uint32_t busCurrent;
-	uint32_t busVoltage;
+	float busCurrent;
+	float busVoltage;
 	uint32_t errorRegister;
 	uint32_t loopTimeFOC;
 	uint32_t loopTimeSecondary;
@@ -26,7 +25,6 @@ static_assert(std::is_standard_layout_v<UDPDataFromPeripheral>,
 			  "UDPDataFromPeripheral must remain standard-layout.");
 
 inline constexpr size_t offsetsUDPFromPeripheral[] = {
-	offsetof(UDPDataFromPeripheral, index),
 	offsetof(UDPDataFromPeripheral, timestamp),
 	offsetof(UDPDataFromPeripheral, position),
 	offsetof(UDPDataFromPeripheral, velocity),
@@ -46,6 +44,7 @@ struct UDPDataFromController {
 	float torqueSetpoint;
 	float velocitySetpoint;
 	float positionSetpoint;
+	uint32_t drivingMode;
 };
 
 static_assert(std::is_standard_layout_v<UDPDataFromController>,
@@ -54,12 +53,13 @@ static_assert(std::is_standard_layout_v<UDPDataFromController>,
 inline constexpr size_t offsetsUDPFromController[] = {
 	offsetof(UDPDataFromController, torqueSetpoint),
 	offsetof(UDPDataFromController, velocitySetpoint),
-	offsetof(UDPDataFromController, positionSetpoint)
+	offsetof(UDPDataFromController, positionSetpoint),
+	offsetof(UDPDataFromController, drivingMode),
 };
 
-static_assert(sizeof(UDPDataFromController) == 12,
+static_assert(sizeof(UDPDataFromController) == 4 * 4, // 4 bytes per entry, 4 entries.
 			  "Unexpected UDPDataFromController size.");
 
 static_assert(sizeof(UDPDataFromPeripheral) ==
-				  sizeof(uint32_t) * 5 + sizeof(float) * 9,
+				  sizeof(uint32_t) * 4 + sizeof(float) * 9,
 			  "Unexpected UDPDataFromPeripheral size.");
