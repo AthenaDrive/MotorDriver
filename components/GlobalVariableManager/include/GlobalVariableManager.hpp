@@ -17,6 +17,21 @@ public:
     static constexpr float TWO_PI = 6.283185307179586f;
     static constexpr float PI_DIV_2 = 1.570796326794897;
 
+    uint32_t getUdpAsPeripheralHeader();
+    void setUdpAsPeripheralHeader(uint32_t value);
+
+    uint32_t getUdpFromPeripheralBuffer(uint8_t* value, uint32_t capacity, bool empty = false);
+    uint32_t setUdpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
+
+    uint32_t getUdpFromControllerBuffer(uint8_t* value, uint32_t capacity, bool empty = false);
+    uint32_t setUdpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
+
+    uint32_t getTcpFromPeripheralBuffer(uint8_t* value, uint32_t capacity, bool empty = false);
+    uint32_t setTcpFromPeripheralBuffer(const uint8_t* value, uint32_t valueSize);
+
+    uint32_t getTcpFromControllerBuffer(uint8_t* value, uint32_t capacity, bool empty = false);
+    uint32_t setTcpFromControllerBuffer(const uint8_t* value, uint32_t valueSize);
+
     uint32_t getNumPolePairs();
     void setNumPolePairs(uint32_t value);
 
@@ -47,11 +62,29 @@ public:
     float getAvgTorque();
     void setAvgTorque(float value);
 
-    float getAvgLoopTimeFOC();
-    void setAvgLoopTimeFOC(float value);
+    uint32_t getAvgLoopTimeFOC();
+    void setAvgLoopTimeFOC(uint32_t value);
 
-    uint32_t getVoltage();
-    void setVoltage(uint32_t value);
+    uint32_t getAvgLoopTimeSecondary();
+    void setAvgLoopTimeSecondary(uint32_t value);
+
+    uint32_t getErrorFlags();
+    void setErrorFlags(uint32_t value);
+
+    uint32_t getBoardState();
+    void setBoardState(uint32_t value);
+
+    uint32_t getLedStatus();
+    void setLedStatus(uint32_t value);
+
+    uint32_t getButtonStatus();
+    void setButtonStatus(uint32_t value);
+
+    float getBusVoltage();
+    void setBusVoltage(float value);
+
+    float getBusCurrent();
+    void setBusCurrent(float value);
 
     uint32_t getDrivingMode();
     void setDrivingMode(uint32_t value);
@@ -61,6 +94,9 @@ public:
 
     uint32_t getCurrentLimitBus();
     void setCurrentLimitBus(uint32_t value);
+
+    float getPhaseRMSVoltage();
+    void setPhaseRMSVoltage(float value);
 
     float getIa();
     void setIa(float value);
@@ -80,6 +116,9 @@ public:
     float getTorqueKd();
     void setTorqueKd(float value);
 
+    float getTorqueLimit();
+    void setTorqueLimit(float value);
+
     float getTorqueSetpoint();
     void setTorqueSetpoint(float value);
 
@@ -94,6 +133,9 @@ public:
 
     float getVelocityKd();
     void setVelocityKd(float value);
+
+    float getVelocityLimit();
+    void setVelocityLimit(float value);
 
     float getVelocitySetpoint();
     void setVelocitySetpoint(float value);
@@ -116,10 +158,36 @@ public:
     uint32_t getPositionControlFrequency();
     void setPositionControlFrequency(uint32_t value);
 
+
+private:
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
-private:
+    std::atomic_uint32_t _udpAsPeripheralHeader{0};
+
+    constexpr static uint32_t _udpFromPeripheralBufferCapacity{1024};
+    uint8_t _udpFromPeripheralBuffer[_udpFromPeripheralBufferCapacity];
+    uint32_t _udpFromPeripheralBufferSize{0};
+    std::mutex _udpFromPeripheralBufferMutex;
+
+
+    constexpr static uint32_t _udpFromControllerBufferCapacity{1024};
+    uint8_t _udpFromControllerBuffer[_udpFromControllerBufferCapacity];
+    uint32_t _udpFromControllerBufferSize{0};
+    std::mutex _udpFromControllerBufferMutex;
+
+
+    constexpr static uint32_t _tcpFromPeripheralBufferCapacity{1024};
+    uint8_t _tcpFromPeripheralBuffer[_tcpFromPeripheralBufferCapacity];
+    uint32_t _tcpFromPeripheralBufferSize{0};
+    std::mutex _tcpFromPeripheralBufferMutex;
+
+
+    constexpr static uint32_t _tcpFromControllerBufferCapacity{1024};
+    uint8_t _tcpFromControllerBuffer[_tcpFromControllerBufferCapacity];
+    uint32_t _tcpFromControllerBufferSize{0};
+    std::mutex _tcpFromControllerBufferMutex;
+
     std::atomic_uint32_t _numPolePairs{20};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
@@ -131,21 +199,30 @@ private:
     std::atomic_uint32_t _avgAcceleration{0};
     std::atomic_uint32_t _avgTorque{0};
     std::atomic_uint32_t _avgLoopTimeFOC{0};
-    std::atomic_uint32_t _voltage{0};
+    std::atomic_uint32_t _avgLoopTimeSecondary{0};
+    std::atomic_uint32_t _errorFlags{0};
+    std::atomic_uint32_t _boardState{0};
+    std::atomic_uint32_t _ledStatus{0};
+    std::atomic_uint32_t _buttonStatus{0};
+    std::atomic_uint32_t _busVoltage{0};
+    std::atomic_uint32_t _busCurrent{0};
     std::atomic_uint32_t _drivingMode{0};
     std::atomic_uint32_t _currentLimitPhase{1000};
     std::atomic_uint32_t _currentLimitBus{5000};
+    std::atomic_uint32_t _phaseRMSVoltage{0};
     std::atomic_uint32_t _Ia{0};
     std::atomic_uint32_t _Ib{0};
     std::atomic_uint32_t _Ic{0};
     std::atomic_uint32_t _torqueKp{0};
     std::atomic_uint32_t _torqueKi{0};
     std::atomic_uint32_t _torqueKd{0};
+    std::atomic_uint32_t _torqueLimit{0};
     std::atomic_uint32_t _torqueSetpoint{0};
     std::atomic_uint32_t _torqueControlFrequency{1};
     std::atomic_uint32_t _velocityKp{0};
     std::atomic_uint32_t _velocityKi{0};
     std::atomic_uint32_t _velocityKd{0};
+    std::atomic_uint32_t _velocityLimit{0};
     std::atomic_uint32_t _velocitySetpoint{0};
     std::atomic_uint32_t _velocityControlFrequency{10};
     std::atomic_uint32_t _positionKp{0};
