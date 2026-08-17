@@ -30,6 +30,8 @@ public:
     esp_err_t read_angle(float &degrees, bool with_daec = true);
     esp_err_t read_angle_raw(uint16_t &raw, bool with_daec = true);
 
+    esp_err_t completeRead(float &angle, float &velocity);
+
     esp_err_t pipeline_start();
     esp_err_t pipeline_read_angle(float &degrees, bool with_daec = true);
 
@@ -45,4 +47,8 @@ private:
     int _clock_speed_hz;
     bool _initialized;
     bool _pipeline_active;
+
+    float _prev_angle;
+    int64_t _prev_time_us;
+    bool _has_prev_read;
 };

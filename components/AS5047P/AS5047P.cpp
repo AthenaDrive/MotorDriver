@@ -1,6 +1,7 @@
 #include "AS5047P.hpp"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char *TAG = "AS5047P";
 
@@ -10,7 +11,10 @@ AS5047P::AS5047P(SPIBase &spi, uint8_t cs_gpio, int clock_speed_hz)
     , _cs_gpio(cs_gpio)
     , _clock_speed_hz(clock_speed_hz)
     , _initialized(false)
-    , _pipeline_active(false) {}
+    , _pipeline_active(false)
+    , _prev_angle(0.0f)
+    , _prev_time_us(0)
+    , _has_prev_read(false) {}
 
 uint16_t AS5047P::_apply_parity(uint16_t word) {
     uint16_t w = word & 0x7FFF;
@@ -122,6 +126,30 @@ esp_err_t AS5047P::read_angle(float &degrees, bool with_daec) {
     esp_err_t ret = read_angle_raw(raw, with_daec);
     if (ret != ESP_OK) return ret;
     degrees = _raw_to_degrees(raw);
+    return ESP_OK;
+}
+
+esp_err_t AS5047P::completeRead(float &angle, float &velocity) {
+    uint16_t raw;
+    esp_err_t ret = read_angle_raw(raw, true);
+    if (ret != ESP_OK) return ret;
+    angle = _raw_to_degrees(raw);
+
+    float delta = angle - _prev_angle;
+    while (delta > 180.0f) delta -= 360.0f;
+    while (delta < -180.0f) delta += 360.0f;
+
+    int64_t now = esp_timer_get_time();
+    if (_has_prev_read && now > _prev_time_us) {
+        float dt = (now - _prev_time_us) / 1e6f;
+        velocity = delta / dt;
+    } else {
+        velocity = 0.0f;
+    }
+
+    _prev_angle = angle;
+    _prev_time_us = now;
+    _has_prev_read = true;
     return ESP_OK;
 }
 
