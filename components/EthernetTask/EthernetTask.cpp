@@ -812,10 +812,10 @@ void EthernetTask::begin() {
     };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    xTaskCreate(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigController, 12, nullptr);
-    xTaskCreate(udp_as_controller_task, "udp_eth1", 8192, &udpConfigPeripheral, 12, nullptr);
-    xTaskCreate(tcp_as_peripheral_task, "tcp_srv", 8192, &tcpConfigServer, 12, nullptr);
-    xTaskCreate(tcp_as_controller_task, "tcp_cli", 8192, &tcpConfigClient, 12, nullptr);
+    xTaskCreatePinnedToCore(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigController, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(udp_as_controller_task, "udp_eth1", 8192, &udpConfigPeripheral, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(tcp_as_peripheral_task, "tcp_srv", 8192, &tcpConfigServer, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(tcp_as_controller_task, "tcp_cli", 8192, &tcpConfigClient, 12, nullptr, 0);
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
