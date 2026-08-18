@@ -5,15 +5,15 @@
 
 FOCTask::FOCTask(FOCTaskConfig &config)
     : _config(config),
-    _spi(SPI2_HOST, _config.SPI0_CLK, _config.SPI0_PICO, _config.SPI0_POCI),
-    _encoder(_spi, _config.AS5047P_CS),
-    _drv(_spi, _config.DRV8323_CS, 1, 500000),
+    _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI),
+    _encoder(_spi, _config.cAS5047P_CS),
+    _drv(_spi, _config.cDRV8323_CS, 1, 500000),
     _controller({1.0, 0.0, 1.0, 0.0, 10.0, 10.0}) {
 }
 
 void FOCTask::begin() {
-    gpio_set_level(_config.DRV8323_CS, 1);
-    gpio_set_direction(_config.DRV8323_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(_config.cDRV8323_CS, 1);
+    gpio_set_direction(_config.cDRV8323_CS, GPIO_MODE_OUTPUT);
 
     ESP_ERROR_CHECK(_pwm.init(30000, 40000000, nullptr, nullptr));
     ESP_ERROR_CHECK(_spi.init());
@@ -73,4 +73,6 @@ void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, _out.phaseA);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
+
+    printf("Angle: %f\n", angle);
 }

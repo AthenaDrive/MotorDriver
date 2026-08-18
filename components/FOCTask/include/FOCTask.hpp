@@ -14,11 +14,11 @@
 
 struct FOCTaskConfig
 {
-    gpio_num_t DRV8323_CS;
-    gpio_num_t AS5047P_CS;
-    gpio_num_t SPI0_CLK;
-    gpio_num_t SPI0_PICO;
-    gpio_num_t SPI0_POCI;
+    gpio_num_t cDRV8323_CS;
+    gpio_num_t cAS5047P_CS;
+    gpio_num_t cSPI0_CLK;
+    gpio_num_t cSPI0_PICO;
+    gpio_num_t cSPI0_POCI;
 };
 
 

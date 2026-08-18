@@ -14,6 +14,7 @@
 #include "LSM6DSO.hpp"
 #include "SdCard.hpp"
 #include "EthernetTask.hpp"
+#include "FOCTask.hpp"
 #include "GlobalVariableManager.hpp"
 #include "Pinout.hpp"
 #include "Config.hpp"
@@ -85,6 +86,16 @@ extern "C" void app_main(void) {
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();
 
+    FOCTaskConfig focConfig{
+        .cDRV8323_CS = DRV8323_CS,
+        .cAS5047P_CS = AS5047P_CS,
+        .cSPI0_CLK = SPI0_CLK,
+        .cSPI0_PICO = SPI0_PICO,
+        .cSPI0_POCI = SPI0_POCI,
+    };
+    FOCTask focTask{focConfig};
+    focTask.begin();
+
     vTaskDelay(pdMS_TO_TICKS(500));
     printf("All sensors, SD card, Ethernet, PWM, and ADC initialized.\n");
 
@@ -117,6 +128,7 @@ extern "C" void app_main(void) {
                 //    ax, ay, az, gx, gy, gz, lsm_temp);
             }
 
+        focTask.update();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
