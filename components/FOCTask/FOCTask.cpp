@@ -74,5 +74,6 @@ void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
 
-    printf("Angle: %f\n", angle);
+    globalVariableManager.setAngle(angle);
+    globalVariableManager.setVelocity(velocity);
 }

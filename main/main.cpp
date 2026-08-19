@@ -128,6 +128,7 @@ extern "C" void app_main(void) {
                 //    ax, ay, az, gx, gy, gz, lsm_temp);
             }
 
+        
         focTask.update();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
