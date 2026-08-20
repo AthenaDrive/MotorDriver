@@ -3,6 +3,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include <cmath>
+
 static const char *TAG = "AS5047P";
 
 AS5047P::AS5047P(SPIBase &spi, uint8_t cs_gpio, int clock_speed_hz)
@@ -11,10 +13,7 @@ AS5047P::AS5047P(SPIBase &spi, uint8_t cs_gpio, int clock_speed_hz)
     , _cs_gpio(cs_gpio)
     , _clock_speed_hz(clock_speed_hz)
     , _initialized(false)
-    , _pipeline_active(false)
-    , _prev_angle(0.0f)
-    , _prev_time_us(0)
-    , _has_prev_read(false) {}
+    , _pipeline_active(false) {}
 
 uint16_t AS5047P::_apply_parity(uint16_t word) {
     uint16_t w = word & 0x7FFF;
@@ -32,6 +31,11 @@ uint16_t AS5047P::_apply_parity(uint16_t word) {
 
 float AS5047P::_raw_to_degrees(uint16_t raw) {
     return (float)(raw & ENCODER_DATA_MASK) * 360.0f / 16384.0f;
+}
+
+float AS5047P::_raw_to_radians(uint16_t raw)
+{
+    return (float)(raw & ENCODER_DATA_MASK) * (2.0f * M_PI) / 16384.0f;
 }
 
 esp_err_t AS5047P::init() {
@@ -129,27 +133,45 @@ esp_err_t AS5047P::read_angle(float &degrees, bool with_daec) {
     return ESP_OK;
 }
 
-esp_err_t AS5047P::completeRead(float &angle, float &velocity) {
+esp_err_t AS5047P::completeRead(float &angle,
+                                float &velocity,
+                                float &acceleration)
+{
     uint16_t raw;
+
     esp_err_t ret = read_angle_raw(raw, true);
     if (ret != ESP_OK) return ret;
-    angle = _raw_to_degrees(raw);
 
+    // Position in radians
+    angle = _raw_to_radians(raw);
+
+    // Calculate shortest angular displacement [-pi, pi]
     float delta = angle - _prev_angle;
-    while (delta > 180.0f) delta -= 360.0f;
-    while (delta < -180.0f) delta += 360.0f;
+
+    while (delta > M_PI)  delta -= 2.0f * M_PI;
+    while (delta < -M_PI) delta += 2.0f * M_PI;
 
     int64_t now = esp_timer_get_time();
+
     if (_has_prev_read && now > _prev_time_us) {
         float dt = (now - _prev_time_us) / 1e6f;
+
+        // Angular velocity [rad/s]
         velocity = delta / dt;
+
+        // Angular acceleration [rad/s^2]
+        acceleration = (velocity - _prev_velocity) / dt;
     } else {
         velocity = 0.0f;
+        acceleration = 0.0f;
     }
 
+    // Save state for the next measurement
     _prev_angle = angle;
+    _prev_velocity = velocity;
     _prev_time_us = now;
     _has_prev_read = true;
+
     return ESP_OK;
 }
 

@@ -30,7 +30,7 @@ public:
     esp_err_t read_angle(float &degrees, bool with_daec = true);
     esp_err_t read_angle_raw(uint16_t &raw, bool with_daec = true);
 
-    esp_err_t completeRead(float &angle, float &velocity);
+    esp_err_t completeRead(float &angle, float &velocity, float &acceleration);
 
     esp_err_t pipeline_start();
     esp_err_t pipeline_read_angle(float &degrees, bool with_daec = true);
@@ -38,6 +38,7 @@ public:
 private:
     static uint16_t _apply_parity(uint16_t word);
     static float _raw_to_degrees(uint16_t raw);
+    static float _raw_to_radians(uint16_t raw);
 
     esp_err_t _transfer(uint16_t tx, uint16_t &rx);
 
@@ -48,7 +49,9 @@ private:
     bool _initialized;
     bool _pipeline_active;
 
-    float _prev_angle;
-    int64_t _prev_time_us;
-    bool _has_prev_read;
+    float _prev_angle = 0.0f;
+    float _prev_velocity = 0.0f;
+    
+    int64_t _prev_time_us = 0;
+    bool _has_prev_read = false;
 };
