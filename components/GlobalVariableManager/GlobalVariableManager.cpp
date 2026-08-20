@@ -11,6 +11,9 @@ DO NOT MODIFY THIS FILE.
 GlobalVariableManager globalVariableManager;
 
 GlobalVariableManager::GlobalVariableManager() {
+    atomic_store_float(_wantedPhaseA, 0.0f);
+    atomic_store_float(_wantedPhaseB, 0.0f);
+    atomic_store_float(_wantedPhaseC, 0.0f);
     atomic_store_float(_angle, 0.0f);
     atomic_store_float(_velocity, 0.0f);
     atomic_store_float(_acceleration, 0.0f);
@@ -54,6 +57,30 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
     std::memcpy(&value, &bits, sizeof(value));
     return value;
 }
+float GlobalVariableManager::getWantedPhaseA() {
+    return atomic_load_float(_wantedPhaseA);
+}
+
+void GlobalVariableManager::setWantedPhaseA(float value) {
+    atomic_store_float(_wantedPhaseA, value);
+}
+
+float GlobalVariableManager::getWantedPhaseB() {
+    return atomic_load_float(_wantedPhaseB);
+}
+
+void GlobalVariableManager::setWantedPhaseB(float value) {
+    atomic_store_float(_wantedPhaseB, value);
+}
+
+float GlobalVariableManager::getWantedPhaseC() {
+    return atomic_load_float(_wantedPhaseC);
+}
+
+void GlobalVariableManager::setWantedPhaseC(float value) {
+    atomic_store_float(_wantedPhaseC, value);
+}
+
 uint32_t GlobalVariableManager::getUdpAsPeripheralHeader() {
     return _udpAsPeripheralHeader.load(std::memory_order_relaxed);
 }

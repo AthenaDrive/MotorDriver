@@ -1,5 +1,9 @@
 # Variables
 
+float, wantedPhaseA, 0.0f
+float, wantedPhaseB, 0.0f
+float, wantedPhaseC, 0.0f
+
 uint32_t, udpAsPeripheralHeader, 0
 Buffer, udpFromPeripheralBuffer, 1024
 Buffer, udpFromControllerBuffer, 1024
