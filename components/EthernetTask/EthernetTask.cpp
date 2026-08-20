@@ -396,9 +396,9 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 3: {
-                            float torqueKd;
-                            memcpy(&torqueKd, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTorqueKd(torqueKd);
+                            float torqueKi;
+                            memcpy(&torqueKi, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTorqueKi(torqueKi);
                         } break;
 
                         case 4: {
@@ -423,15 +423,15 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 8: {
-                            float velocityKd;
-                            memcpy(&velocityKd, message + inBufCommandOffset, 4);
-                            globalVariableManager.setVelocityKd(velocityKd);
-                        } break;
-
-                        case 9: {
                             float velocityKi;
                             memcpy(&velocityKi, message + inBufCommandOffset, 4);
                             globalVariableManager.setVelocityKi(velocityKi);
+                        } break;
+
+                        case 9: {
+                            float velocityKd;
+                            memcpy(&velocityKd, message + inBufCommandOffset, 4);
+                            globalVariableManager.setVelocityKd(velocityKd);
                         } break;
 
                         case 10: {
@@ -453,15 +453,15 @@ void tcp_as_peripheral_task(void *arg) {
                         } break;
 
                         case 13: {
-                            float positionKd;
-                            memcpy(&positionKd, message + inBufCommandOffset, 4);
-                            globalVariableManager.setPositionKd(positionKd);
-                        } break;
-
-                        case 14: {
                             float positionKi;
                             memcpy(&positionKi, message + inBufCommandOffset, 4);
                             globalVariableManager.setPositionKi(positionKi);
+                        } break;
+
+                        case 14: {
+                            float positionKd;
+                            memcpy(&positionKd, message + inBufCommandOffset, 4);
+                            globalVariableManager.setPositionKd(positionKd);
                         } break;
 
                         case 15: {
