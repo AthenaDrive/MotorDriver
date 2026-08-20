@@ -32,8 +32,8 @@ void FOCTask::begin() {
 }
 
 void FOCTask::update() {
-    float angle, velocity;
-    if (_encoder.completeRead(angle, velocity) == ESP_OK) {
+    float angle, velocity, acceleration;
+    if (_encoder.completeRead(angle, velocity, acceleration) == ESP_OK) {
         globalVariableManager.setAngle(angle);
         globalVariableManager.setVelocity(velocity);
     }
