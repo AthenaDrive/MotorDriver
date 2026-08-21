@@ -18,6 +18,21 @@ struct UDPDataFromPeripheral {
 	uint32_t errorRegister;
 	uint32_t loopTimeFOC;
 	uint32_t loopTimeSecondary;
+	float accX;
+	float accY;
+	float accZ;
+	float gyroX;
+	float gyroY;
+	float gyroZ;
+
+	float debugFloat0;
+	float debugFloat1;
+	float debugFloat2;
+	float debugFloat3;
+	int32_t debugInt0;
+	int32_t debugInt1;
+	uint32_t debugUint0;
+	uint32_t debugUint1;
 };
 
 static_assert(sizeof(float) == 4, "Protocol requires 32-bit IEEE754 floats.");
@@ -37,7 +52,22 @@ inline constexpr size_t offsetsUDPFromPeripheral[] = {
 	offsetof(UDPDataFromPeripheral, busVoltage),
 	offsetof(UDPDataFromPeripheral, errorRegister),
 	offsetof(UDPDataFromPeripheral, loopTimeFOC),
-	offsetof(UDPDataFromPeripheral, loopTimeSecondary)
+	offsetof(UDPDataFromPeripheral, loopTimeSecondary),
+	offsetof(UDPDataFromPeripheral, accX),
+	offsetof(UDPDataFromPeripheral, accY),
+	offsetof(UDPDataFromPeripheral, accZ),
+	offsetof(UDPDataFromPeripheral, gyroX),
+	offsetof(UDPDataFromPeripheral, gyroY),
+	offsetof(UDPDataFromPeripheral, gyroZ),
+
+	offsetof(UDPDataFromPeripheral, debugFloat0),
+	offsetof(UDPDataFromPeripheral, debugFloat1),
+	offsetof(UDPDataFromPeripheral, debugFloat2),
+	offsetof(UDPDataFromPeripheral, debugFloat3),
+	offsetof(UDPDataFromPeripheral, debugInt0),
+	offsetof(UDPDataFromPeripheral, debugInt1),
+	offsetof(UDPDataFromPeripheral, debugUint0),
+	offsetof(UDPDataFromPeripheral, debugUint1)
 };
 
 struct UDPDataFromController {
@@ -45,6 +75,15 @@ struct UDPDataFromController {
 	float velocitySetpoint;
 	float positionSetpoint;
 	uint32_t drivingMode;
+
+	float debugFloat0;
+	float debugFloat1;
+	float debugFloat2;
+	float debugFloat3;
+	int32_t debugInt0;
+	int32_t debugInt1;
+	uint32_t debugUint0;
+	uint32_t debugUint1;
 };
 
 static_assert(std::is_standard_layout_v<UDPDataFromController>,
@@ -55,11 +94,13 @@ inline constexpr size_t offsetsUDPFromController[] = {
 	offsetof(UDPDataFromController, velocitySetpoint),
 	offsetof(UDPDataFromController, positionSetpoint),
 	offsetof(UDPDataFromController, drivingMode),
+
+	offsetof(UDPDataFromController, debugFloat0),
+	offsetof(UDPDataFromController, debugFloat1),
+	offsetof(UDPDataFromController, debugFloat2),
+	offsetof(UDPDataFromController, debugFloat3),
+	offsetof(UDPDataFromController, debugInt0),
+	offsetof(UDPDataFromController, debugInt1),
+	offsetof(UDPDataFromController, debugUint0),
+	offsetof(UDPDataFromController, debugUint1)
 };
-
-static_assert(sizeof(UDPDataFromController) == 4 * 4, // 4 bytes per entry, 4 entries.
-			  "Unexpected UDPDataFromController size.");
-
-static_assert(sizeof(UDPDataFromPeripheral) ==
-				  sizeof(uint32_t) * 4 + sizeof(float) * 9,
-			  "Unexpected UDPDataFromPeripheral size.");

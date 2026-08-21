@@ -205,6 +205,76 @@ void udp_as_peripheral_task(void *arg) {
                         memcpy(packet + offset, &loopTimeSecondary, 4);
                     } break;
 
+                    case 13: {
+                        float accX = globalVariableManager.getAccX();
+                        memcpy(packet + offset, &accX, 4);
+                    } break;
+
+                    case 14: {
+                        float accY = globalVariableManager.getAccY();
+                        memcpy(packet + offset, &accY, 4);
+                    } break;
+
+                    case 15: {
+                        float accZ = globalVariableManager.getAccZ();
+                        memcpy(packet + offset, &accZ, 4);
+                    } break;
+
+                    case 16: {
+                        float gyroX = globalVariableManager.getGyroX();
+                        memcpy(packet + offset, &gyroX, 4);
+                    } break;
+
+                    case 17: {
+                        float gyroY = globalVariableManager.getGyroY();
+                        memcpy(packet + offset, &gyroY, 4);
+                    } break;
+
+                    case 18: {
+                        float gyroZ = globalVariableManager.getGyroZ();
+                        memcpy(packet + offset, &gyroZ, 4);
+                    } break;
+
+                    case 24: {
+                        float udpDataDebugFloat0 = globalVariableManager.getUdpDataDebugFloat0();
+                        memcpy(packet + offset, &udpDataDebugFloat0, 4);
+                    } break;
+
+                    case 25: {
+                        float udpDataDebugFloat1 = globalVariableManager.getUdpDataDebugFloat1();
+                        memcpy(packet + offset, &udpDataDebugFloat1, 4);
+                    } break;
+
+                    case 26: {
+                        float udpDataDebugFloat2 = globalVariableManager.getUdpDataDebugFloat2();
+                        memcpy(packet + offset, &udpDataDebugFloat2, 4);
+                    } break;
+
+                    case 27: {
+                        float udpDataDebugFloat3 = globalVariableManager.getUdpDataDebugFloat3();
+                        memcpy(packet + offset, &udpDataDebugFloat3, 4);
+                    } break;
+
+                    case 28: {
+                        int32_t udpDataDebugInt0 = globalVariableManager.getUdpDataDebugInt0();
+                        memcpy(packet + offset, &udpDataDebugInt0, 4);
+                    } break;
+
+                    case 29: {
+                        int32_t udpDataDebugInt1 = globalVariableManager.getUdpDataDebugInt1();
+                        memcpy(packet + offset, &udpDataDebugInt1, 4);
+                    } break;
+
+                    case 30: {
+                        uint32_t udpDataDebugUint0 = globalVariableManager.getUdpDataDebugUint0();
+                        memcpy(packet + offset, &udpDataDebugUint0, 4);
+                    } break;
+
+                    case 31: {
+                        uint32_t udpDataDebugUint1 = globalVariableManager.getUdpDataDebugUint1();
+                        memcpy(packet + offset, &udpDataDebugUint1, 4);
+                    } break;
+
                     default: {
                     } break;
                 }
@@ -253,7 +323,55 @@ void udp_as_peripheral_task(void *arg) {
                             uint32_t drivingMode;
                             memcpy(&drivingMode, recvPacket + recvOffset, 4);
                             globalVariableManager.setDrivingMode(drivingMode);
-                        }
+                        } break;
+
+                        case 24: {
+                            float udpCommandDebugFloat0;
+                            memcpy(&udpCommandDebugFloat0, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugFloat0(udpCommandDebugFloat0);
+                        } break;
+
+                        case 25: {
+                            float udpCommandDebugFloat1;
+                            memcpy(&udpCommandDebugFloat1, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugFloat1(udpCommandDebugFloat1);
+                        } break;
+
+                        case 26: {
+                            float udpCommandDebugFloat2;
+                            memcpy(&udpCommandDebugFloat2, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugFloat2(udpCommandDebugFloat2);
+                        } break;
+
+                        case 27: {
+                            float udpCommandDebugFloat3;
+                            memcpy(&udpCommandDebugFloat3, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugFloat3(udpCommandDebugFloat3);
+                        } break;
+
+                        case 28: {
+                            int32_t udpCommandDebugInt0;
+                            memcpy(&udpCommandDebugInt0, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugInt0(udpCommandDebugInt0);
+                        } break;
+
+                        case 29: {
+                            int32_t udpCommandDebugInt1;
+                            memcpy(&udpCommandDebugInt1, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugInt1(udpCommandDebugInt1);
+                        } break;
+
+                        case 30: {
+                            uint32_t udpCommandDebugUint0;
+                            memcpy(&udpCommandDebugUint0, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugUint0(udpCommandDebugUint0);
+                        } break;
+
+                        case 31: {
+                            uint32_t udpCommandDebugUint1;
+                            memcpy(&udpCommandDebugUint1, recvPacket + recvOffset, 4);
+                            globalVariableManager.setUdpCommandDebugUint1(udpCommandDebugUint1);
+                        } break;
 
                         default: {
                         } break;
@@ -501,6 +619,54 @@ void tcp_as_peripheral_task(void *arg) {
                             globalVariableManager.setErrorFlags(errorFlags);
                         } break;
 
+                        case 24: {
+                            float tcpCommandDebugFloat0;
+                            memcpy(&tcpCommandDebugFloat0, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugFloat0(tcpCommandDebugFloat0);
+                        } break;
+
+                        case 25: {
+                            float tcpCommandDebugFloat1;
+                            memcpy(&tcpCommandDebugFloat1, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugFloat1(tcpCommandDebugFloat1);
+                        } break;
+
+                        case 26: {
+                            float tcpCommandDebugFloat2;
+                            memcpy(&tcpCommandDebugFloat2, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugFloat2(tcpCommandDebugFloat2);
+                        } break;
+
+                        case 27: {
+                            float tcpCommandDebugFloat3;
+                            memcpy(&tcpCommandDebugFloat3, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugFloat3(tcpCommandDebugFloat3);
+                        } break;
+
+                        case 28: {
+                            int32_t tcpCommandDebugInt0;
+                            memcpy(&tcpCommandDebugInt0, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugInt0(tcpCommandDebugInt0);
+                        } break;
+
+                        case 29: {
+                            int32_t tcpCommandDebugInt1;
+                            memcpy(&tcpCommandDebugInt1, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugInt1(tcpCommandDebugInt1);
+                        } break;
+
+                        case 30: {
+                            uint32_t tcpCommandDebugUint0;
+                            memcpy(&tcpCommandDebugUint0, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugUint0(tcpCommandDebugUint0);
+                        } break;
+
+                        case 31: {
+                            uint32_t tcpCommandDebugUint1;
+                            memcpy(&tcpCommandDebugUint1, message + inBufCommandOffset, 4);
+                            globalVariableManager.setTcpCommandDebugUint1(tcpCommandDebugUint1);
+                        } break;
+
                     default:
                         break;
                     }
@@ -569,6 +735,46 @@ void tcp_as_peripheral_task(void *arg) {
                         case 11: {
                             uint32_t errorFlags = globalVariableManager.getErrorFlags();
                             memcpy(outBuf + outBufOffset, &errorFlags, 4);
+                        } break;
+
+                        case 24: {
+                            float tcpDataDebugFloat0 = globalVariableManager.getTcpDataDebugFloat0();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat0, 4);
+                        } break;
+
+                        case 25: {
+                            float tcpDataDebugFloat1 = globalVariableManager.getTcpDataDebugFloat1();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat1, 4);
+                        } break;
+
+                        case 26: {
+                            float tcpDataDebugFloat2 = globalVariableManager.getTcpDataDebugFloat2();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat2, 4);
+                        } break;
+
+                        case 27: {
+                            float tcpDataDebugFloat3 = globalVariableManager.getTcpDataDebugFloat3();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat3, 4);
+                        } break;
+
+                        case 28: {
+                            int32_t tcpDataDebugInt0 = globalVariableManager.getTcpDataDebugInt0();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugInt0, 4);
+                        } break;
+
+                        case 29: {
+                            int32_t tcpDataDebugInt1 = globalVariableManager.getTcpDataDebugInt1();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugInt1, 4);
+                        } break;
+
+                        case 30: {
+                            uint32_t tcpDataDebugUint0 = globalVariableManager.getTcpDataDebugUint0();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugUint0, 4);
+                        } break;
+
+                        case 31: {
+                            uint32_t tcpDataDebugUint1 = globalVariableManager.getTcpDataDebugUint1();
+                            memcpy(outBuf + outBufOffset, &tcpDataDebugUint1, 4);
                         } break;
 
                     default:
