@@ -29,15 +29,38 @@ void FOCTask::begin() {
         }
         printf("Register %i: %i\n", i, drvReg);
     }
+
+    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+
+    globalVariableManager.setWantedPhaseA(52.0f);
+    globalVariableManager.setWantedPhaseB(48.0f);
+    globalVariableManager.setWantedPhaseC(50.0f);
 }
 
 void FOCTask::update() {
+    static uint32_t iteration = 0;
+    static float maxVel = 0.0f;
+    static float bestOffset = 0.0f;
+    static float offsetTmp = 0.0f;
+
+    iteration++;
+    
+    if (iteration > 100) {
+        offsetTmp += 0.001f;
+    }
+
     float angle, velocity, acceleration;
     if (_encoder.completeRead(angle, velocity, acceleration) == ESP_OK) {
         globalVariableManager.setAngle(angle);
         globalVariableManager.setVelocity(velocity);
     }
 
+    if ((iteration > 100) and (fabs(velocity) > maxVel)) {
+        maxVel = fabs(velocity);
+        bestOffset = offsetTmp;
+    }
 
     uint16_t drv_fault, drv_vgs;
     if (_drv.read_fault_status(drv_fault) == ESP_OK) {
@@ -52,23 +75,32 @@ void FOCTask::update() {
     }
 
     float elPos = fmod((angle * globalVariableManager.getNumPolePairs()), GlobalVariableManager::TWO_PI);
-    _out = _controller.update(0.0, elPos, velocity, 0.0, 0.0);
+    _out = _controller.update(2.0f, elPos + offsetTmp, 0.0f, 0.0f, 0.0f);
 
-    if (fabs(_out.phaseA) > 0.1) {
-        _out.phaseA = _out.phaseA < 0 ? -0.1 : 0.1;
+    float maxVal = 4.0f;
+    if (fabs(_out.phaseA) > maxVal) {
+        _out.phaseA = _out.phaseA < 0 ? -maxVal : maxVal;
     }
 
-    if (fabs(_out.phaseB) > 0.1) {
-        _out.phaseB = _out.phaseB < 0 ? -0.1 : 0.1;
+    if (fabs(_out.phaseB) > maxVal) {
+        _out.phaseB = _out.phaseB < 0 ? -maxVal : maxVal;
     }
 
-    if (fabs(_out.phaseC) > 0.1) {
-        _out.phaseC = _out.phaseC < 0 ? -0.1 : 0.1;
+    if (fabs(_out.phaseC) > maxVal) {
+        _out.phaseC = _out.phaseC < 0 ? -maxVal : maxVal;
     }
 
     _out.phaseA += 50.0;
     _out.phaseB += 50.0;
     _out.phaseC += 50.0;
+
+    float tmpA = globalVariableManager.getWantedPhaseA();
+    float tmpB = globalVariableManager.getWantedPhaseB();
+    float tmpC = globalVariableManager.getWantedPhaseC();
+
+    printf("%lu | ", iteration);
+    printf("MaxVel: %f, Best Offset: %f, CurrVel: %f | ", maxVel, bestOffset, fabs(velocity));
+    printf("Offset: %f | Phase: %f, %f, %f\n", offsetTmp, _out.phaseA, _out.phaseB, _out.phaseC);
 
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, _out.phaseA);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);

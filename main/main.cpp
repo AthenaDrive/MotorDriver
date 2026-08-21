@@ -86,6 +86,20 @@ extern "C" void app_main(void) {
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();
 
+    printf("Wating for high voltage.\n");
+    float startupVoltage = 0.0f;
+    while (startupVoltage < 9.0) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        printf(".");
+        ina.read_bus_voltage(startupVoltage);
+    }
+    printf("\nPowered up!\n");
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    mcp.digital_write(DRV8323_INLA, true);
+    mcp.digital_write(DRV8323_INLB, true);
+    mcp.digital_write(DRV8323_INLC, true);
+
     FOCTaskConfig focConfig{
         .cDRV8323_CS = DRV8323_CS,
         .cAS5047P_CS = AS5047P_CS,
@@ -130,6 +144,6 @@ extern "C" void app_main(void) {
 
         
         focTask.update();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
