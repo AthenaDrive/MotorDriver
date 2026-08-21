@@ -4,6 +4,10 @@ float, wantedPhaseA, 0.0f
 float, wantedPhaseB, 0.0f
 float, wantedPhaseC, 0.0f
 
+float, computedPhaseA, 0.0f
+float, computedPhaseB, 0.0f
+float, computedPhaseC, 0.0f
+
 uint32_t, udpAsPeripheralHeader, 0
 Buffer, udpFromPeripheralBuffer, 1024
 Buffer, udpFromControllerBuffer, 1024
@@ -58,6 +62,49 @@ float, positionKi, 0.0f
 float, positionKd, 0.0f
 float, positionSetpoint, 0.0f
 uint32_t, positionControlFrequency, 100
+
+float, accX, 0.0f
+float, accY, 0.0f
+float, accZ, 0.0f
+float, gyroX, 0.0f
+float, gyroY, 0.0f
+float, gyroZ, 0.0f
+
+float, udpDataDebugFloat0, 0.0f
+float, udpDataDebugFloat1, 0.0f
+float, udpDataDebugFloat2, 0.0f
+float, udpDataDebugFloat3, 0.0f
+int32_t, udpDataDebugInt0, 0
+int32_t, udpDataDebugInt1, 0
+uint32_t, udpDataDebugUint0, 0
+uint32_t, udpDataDebugUint1, 0
+
+float, udpCommandDebugFloat0, 0.0f
+float, udpCommandDebugFloat1, 0.0f
+float, udpCommandDebugFloat2, 0.0f
+float, udpCommandDebugFloat3, 0.0f
+int32_t, udpCommandDebugInt0, 0
+int32_t, udpCommandDebugInt1, 0
+uint32_t, udpCommandDebugUint0, 0
+uint32_t, udpCommandDebugUint1, 0
+
+float, tcpDataDebugFloat0, 0.0f
+float, tcpDataDebugFloat1, 0.0f
+float, tcpDataDebugFloat2, 0.0f
+float, tcpDataDebugFloat3, 0.0f
+int32_t, tcpDataDebugInt0, 0
+int32_t, tcpDataDebugInt1, 0
+uint32_t, tcpDataDebugUint0, 0
+uint32_t, tcpDataDebugUint1, 0
+
+float, tcpCommandDebugFloat0, 0.0f
+float, tcpCommandDebugFloat1, 0.0f
+float, tcpCommandDebugFloat2, 0.0f
+float, tcpCommandDebugFloat3, 0.0f
+int32_t, tcpCommandDebugInt0, 0
+int32_t, tcpCommandDebugInt1, 0
+uint32_t, tcpCommandDebugUint0, 0
+uint32_t, tcpCommandDebugUint1, 0
 
 # Consts
 float,       PI, 3.141592653589793f

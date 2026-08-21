@@ -14,6 +14,9 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_wantedPhaseA, 0.0f);
     atomic_store_float(_wantedPhaseB, 0.0f);
     atomic_store_float(_wantedPhaseC, 0.0f);
+    atomic_store_float(_computedPhaseA, 0.0f);
+    atomic_store_float(_computedPhaseB, 0.0f);
+    atomic_store_float(_computedPhaseC, 0.0f);
     atomic_store_float(_angle, 0.0f);
     atomic_store_float(_velocity, 0.0f);
     atomic_store_float(_acceleration, 0.0f);
@@ -41,6 +44,28 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_positionKi, 0.0f);
     atomic_store_float(_positionKd, 0.0f);
     atomic_store_float(_positionSetpoint, 0.0f);
+    atomic_store_float(_accX, 0.0f);
+    atomic_store_float(_accY, 0.0f);
+    atomic_store_float(_accZ, 0.0f);
+    atomic_store_float(_gyroX, 0.0f);
+    atomic_store_float(_gyroY, 0.0f);
+    atomic_store_float(_gyroZ, 0.0f);
+    atomic_store_float(_udpDataDebugFloat0, 0.0f);
+    atomic_store_float(_udpDataDebugFloat1, 0.0f);
+    atomic_store_float(_udpDataDebugFloat2, 0.0f);
+    atomic_store_float(_udpDataDebugFloat3, 0.0f);
+    atomic_store_float(_udpCommandDebugFloat0, 0.0f);
+    atomic_store_float(_udpCommandDebugFloat1, 0.0f);
+    atomic_store_float(_udpCommandDebugFloat2, 0.0f);
+    atomic_store_float(_udpCommandDebugFloat3, 0.0f);
+    atomic_store_float(_tcpDataDebugFloat0, 0.0f);
+    atomic_store_float(_tcpDataDebugFloat1, 0.0f);
+    atomic_store_float(_tcpDataDebugFloat2, 0.0f);
+    atomic_store_float(_tcpDataDebugFloat3, 0.0f);
+    atomic_store_float(_tcpCommandDebugFloat0, 0.0f);
+    atomic_store_float(_tcpCommandDebugFloat1, 0.0f);
+    atomic_store_float(_tcpCommandDebugFloat2, 0.0f);
+    atomic_store_float(_tcpCommandDebugFloat3, 0.0f);
 }
 
 void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {
@@ -79,6 +104,30 @@ float GlobalVariableManager::getWantedPhaseC() {
 
 void GlobalVariableManager::setWantedPhaseC(float value) {
     atomic_store_float(_wantedPhaseC, value);
+}
+
+float GlobalVariableManager::getComputedPhaseA() {
+    return atomic_load_float(_computedPhaseA);
+}
+
+void GlobalVariableManager::setComputedPhaseA(float value) {
+    atomic_store_float(_computedPhaseA, value);
+}
+
+float GlobalVariableManager::getComputedPhaseB() {
+    return atomic_load_float(_computedPhaseB);
+}
+
+void GlobalVariableManager::setComputedPhaseB(float value) {
+    atomic_store_float(_computedPhaseB, value);
+}
+
+float GlobalVariableManager::getComputedPhaseC() {
+    return atomic_load_float(_computedPhaseC);
+}
+
+void GlobalVariableManager::setComputedPhaseC(float value) {
+    atomic_store_float(_computedPhaseC, value);
 }
 
 uint32_t GlobalVariableManager::getUdpAsPeripheralHeader() {
@@ -519,5 +568,309 @@ uint32_t GlobalVariableManager::getPositionControlFrequency() {
 
 void GlobalVariableManager::setPositionControlFrequency(uint32_t value) {
     _positionControlFrequency.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getAccX() {
+    return atomic_load_float(_accX);
+}
+
+void GlobalVariableManager::setAccX(float value) {
+    atomic_store_float(_accX, value);
+}
+
+float GlobalVariableManager::getAccY() {
+    return atomic_load_float(_accY);
+}
+
+void GlobalVariableManager::setAccY(float value) {
+    atomic_store_float(_accY, value);
+}
+
+float GlobalVariableManager::getAccZ() {
+    return atomic_load_float(_accZ);
+}
+
+void GlobalVariableManager::setAccZ(float value) {
+    atomic_store_float(_accZ, value);
+}
+
+float GlobalVariableManager::getGyroX() {
+    return atomic_load_float(_gyroX);
+}
+
+void GlobalVariableManager::setGyroX(float value) {
+    atomic_store_float(_gyroX, value);
+}
+
+float GlobalVariableManager::getGyroY() {
+    return atomic_load_float(_gyroY);
+}
+
+void GlobalVariableManager::setGyroY(float value) {
+    atomic_store_float(_gyroY, value);
+}
+
+float GlobalVariableManager::getGyroZ() {
+    return atomic_load_float(_gyroZ);
+}
+
+void GlobalVariableManager::setGyroZ(float value) {
+    atomic_store_float(_gyroZ, value);
+}
+
+float GlobalVariableManager::getUdpDataDebugFloat0() {
+    return atomic_load_float(_udpDataDebugFloat0);
+}
+
+void GlobalVariableManager::setUdpDataDebugFloat0(float value) {
+    atomic_store_float(_udpDataDebugFloat0, value);
+}
+
+float GlobalVariableManager::getUdpDataDebugFloat1() {
+    return atomic_load_float(_udpDataDebugFloat1);
+}
+
+void GlobalVariableManager::setUdpDataDebugFloat1(float value) {
+    atomic_store_float(_udpDataDebugFloat1, value);
+}
+
+float GlobalVariableManager::getUdpDataDebugFloat2() {
+    return atomic_load_float(_udpDataDebugFloat2);
+}
+
+void GlobalVariableManager::setUdpDataDebugFloat2(float value) {
+    atomic_store_float(_udpDataDebugFloat2, value);
+}
+
+float GlobalVariableManager::getUdpDataDebugFloat3() {
+    return atomic_load_float(_udpDataDebugFloat3);
+}
+
+void GlobalVariableManager::setUdpDataDebugFloat3(float value) {
+    atomic_store_float(_udpDataDebugFloat3, value);
+}
+
+int32_t GlobalVariableManager::getUdpDataDebugInt0() {
+    return _udpDataDebugInt0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpDataDebugInt0(int32_t value) {
+    _udpDataDebugInt0.store(value, std::memory_order_relaxed);
+}
+
+int32_t GlobalVariableManager::getUdpDataDebugInt1() {
+    return _udpDataDebugInt1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpDataDebugInt1(int32_t value) {
+    _udpDataDebugInt1.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getUdpDataDebugUint0() {
+    return _udpDataDebugUint0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpDataDebugUint0(uint32_t value) {
+    _udpDataDebugUint0.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getUdpDataDebugUint1() {
+    return _udpDataDebugUint1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpDataDebugUint1(uint32_t value) {
+    _udpDataDebugUint1.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getUdpCommandDebugFloat0() {
+    return atomic_load_float(_udpCommandDebugFloat0);
+}
+
+void GlobalVariableManager::setUdpCommandDebugFloat0(float value) {
+    atomic_store_float(_udpCommandDebugFloat0, value);
+}
+
+float GlobalVariableManager::getUdpCommandDebugFloat1() {
+    return atomic_load_float(_udpCommandDebugFloat1);
+}
+
+void GlobalVariableManager::setUdpCommandDebugFloat1(float value) {
+    atomic_store_float(_udpCommandDebugFloat1, value);
+}
+
+float GlobalVariableManager::getUdpCommandDebugFloat2() {
+    return atomic_load_float(_udpCommandDebugFloat2);
+}
+
+void GlobalVariableManager::setUdpCommandDebugFloat2(float value) {
+    atomic_store_float(_udpCommandDebugFloat2, value);
+}
+
+float GlobalVariableManager::getUdpCommandDebugFloat3() {
+    return atomic_load_float(_udpCommandDebugFloat3);
+}
+
+void GlobalVariableManager::setUdpCommandDebugFloat3(float value) {
+    atomic_store_float(_udpCommandDebugFloat3, value);
+}
+
+int32_t GlobalVariableManager::getUdpCommandDebugInt0() {
+    return _udpCommandDebugInt0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpCommandDebugInt0(int32_t value) {
+    _udpCommandDebugInt0.store(value, std::memory_order_relaxed);
+}
+
+int32_t GlobalVariableManager::getUdpCommandDebugInt1() {
+    return _udpCommandDebugInt1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpCommandDebugInt1(int32_t value) {
+    _udpCommandDebugInt1.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getUdpCommandDebugUint0() {
+    return _udpCommandDebugUint0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpCommandDebugUint0(uint32_t value) {
+    _udpCommandDebugUint0.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getUdpCommandDebugUint1() {
+    return _udpCommandDebugUint1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUdpCommandDebugUint1(uint32_t value) {
+    _udpCommandDebugUint1.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getTcpDataDebugFloat0() {
+    return atomic_load_float(_tcpDataDebugFloat0);
+}
+
+void GlobalVariableManager::setTcpDataDebugFloat0(float value) {
+    atomic_store_float(_tcpDataDebugFloat0, value);
+}
+
+float GlobalVariableManager::getTcpDataDebugFloat1() {
+    return atomic_load_float(_tcpDataDebugFloat1);
+}
+
+void GlobalVariableManager::setTcpDataDebugFloat1(float value) {
+    atomic_store_float(_tcpDataDebugFloat1, value);
+}
+
+float GlobalVariableManager::getTcpDataDebugFloat2() {
+    return atomic_load_float(_tcpDataDebugFloat2);
+}
+
+void GlobalVariableManager::setTcpDataDebugFloat2(float value) {
+    atomic_store_float(_tcpDataDebugFloat2, value);
+}
+
+float GlobalVariableManager::getTcpDataDebugFloat3() {
+    return atomic_load_float(_tcpDataDebugFloat3);
+}
+
+void GlobalVariableManager::setTcpDataDebugFloat3(float value) {
+    atomic_store_float(_tcpDataDebugFloat3, value);
+}
+
+int32_t GlobalVariableManager::getTcpDataDebugInt0() {
+    return _tcpDataDebugInt0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpDataDebugInt0(int32_t value) {
+    _tcpDataDebugInt0.store(value, std::memory_order_relaxed);
+}
+
+int32_t GlobalVariableManager::getTcpDataDebugInt1() {
+    return _tcpDataDebugInt1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpDataDebugInt1(int32_t value) {
+    _tcpDataDebugInt1.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getTcpDataDebugUint0() {
+    return _tcpDataDebugUint0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpDataDebugUint0(uint32_t value) {
+    _tcpDataDebugUint0.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getTcpDataDebugUint1() {
+    return _tcpDataDebugUint1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpDataDebugUint1(uint32_t value) {
+    _tcpDataDebugUint1.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getTcpCommandDebugFloat0() {
+    return atomic_load_float(_tcpCommandDebugFloat0);
+}
+
+void GlobalVariableManager::setTcpCommandDebugFloat0(float value) {
+    atomic_store_float(_tcpCommandDebugFloat0, value);
+}
+
+float GlobalVariableManager::getTcpCommandDebugFloat1() {
+    return atomic_load_float(_tcpCommandDebugFloat1);
+}
+
+void GlobalVariableManager::setTcpCommandDebugFloat1(float value) {
+    atomic_store_float(_tcpCommandDebugFloat1, value);
+}
+
+float GlobalVariableManager::getTcpCommandDebugFloat2() {
+    return atomic_load_float(_tcpCommandDebugFloat2);
+}
+
+void GlobalVariableManager::setTcpCommandDebugFloat2(float value) {
+    atomic_store_float(_tcpCommandDebugFloat2, value);
+}
+
+float GlobalVariableManager::getTcpCommandDebugFloat3() {
+    return atomic_load_float(_tcpCommandDebugFloat3);
+}
+
+void GlobalVariableManager::setTcpCommandDebugFloat3(float value) {
+    atomic_store_float(_tcpCommandDebugFloat3, value);
+}
+
+int32_t GlobalVariableManager::getTcpCommandDebugInt0() {
+    return _tcpCommandDebugInt0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpCommandDebugInt0(int32_t value) {
+    _tcpCommandDebugInt0.store(value, std::memory_order_relaxed);
+}
+
+int32_t GlobalVariableManager::getTcpCommandDebugInt1() {
+    return _tcpCommandDebugInt1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpCommandDebugInt1(int32_t value) {
+    _tcpCommandDebugInt1.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getTcpCommandDebugUint0() {
+    return _tcpCommandDebugUint0.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpCommandDebugUint0(uint32_t value) {
+    _tcpCommandDebugUint0.store(value, std::memory_order_relaxed);
+}
+
+uint32_t GlobalVariableManager::getTcpCommandDebugUint1() {
+    return _tcpCommandDebugUint1.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setTcpCommandDebugUint1(uint32_t value) {
+    _tcpCommandDebugUint1.store(value, std::memory_order_relaxed);
 }
 

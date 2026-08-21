@@ -26,6 +26,15 @@ public:
     float getWantedPhaseC();
     void setWantedPhaseC(float value);
 
+    float getComputedPhaseA();
+    void setComputedPhaseA(float value);
+
+    float getComputedPhaseB();
+    void setComputedPhaseB(float value);
+
+    float getComputedPhaseC();
+    void setComputedPhaseC(float value);
+
     uint32_t getUdpAsPeripheralHeader();
     void setUdpAsPeripheralHeader(uint32_t value);
 
@@ -167,6 +176,120 @@ public:
     uint32_t getPositionControlFrequency();
     void setPositionControlFrequency(uint32_t value);
 
+    float getAccX();
+    void setAccX(float value);
+
+    float getAccY();
+    void setAccY(float value);
+
+    float getAccZ();
+    void setAccZ(float value);
+
+    float getGyroX();
+    void setGyroX(float value);
+
+    float getGyroY();
+    void setGyroY(float value);
+
+    float getGyroZ();
+    void setGyroZ(float value);
+
+    float getUdpDataDebugFloat0();
+    void setUdpDataDebugFloat0(float value);
+
+    float getUdpDataDebugFloat1();
+    void setUdpDataDebugFloat1(float value);
+
+    float getUdpDataDebugFloat2();
+    void setUdpDataDebugFloat2(float value);
+
+    float getUdpDataDebugFloat3();
+    void setUdpDataDebugFloat3(float value);
+
+    int32_t getUdpDataDebugInt0();
+    void setUdpDataDebugInt0(int32_t value);
+
+    int32_t getUdpDataDebugInt1();
+    void setUdpDataDebugInt1(int32_t value);
+
+    uint32_t getUdpDataDebugUint0();
+    void setUdpDataDebugUint0(uint32_t value);
+
+    uint32_t getUdpDataDebugUint1();
+    void setUdpDataDebugUint1(uint32_t value);
+
+    float getUdpCommandDebugFloat0();
+    void setUdpCommandDebugFloat0(float value);
+
+    float getUdpCommandDebugFloat1();
+    void setUdpCommandDebugFloat1(float value);
+
+    float getUdpCommandDebugFloat2();
+    void setUdpCommandDebugFloat2(float value);
+
+    float getUdpCommandDebugFloat3();
+    void setUdpCommandDebugFloat3(float value);
+
+    int32_t getUdpCommandDebugInt0();
+    void setUdpCommandDebugInt0(int32_t value);
+
+    int32_t getUdpCommandDebugInt1();
+    void setUdpCommandDebugInt1(int32_t value);
+
+    uint32_t getUdpCommandDebugUint0();
+    void setUdpCommandDebugUint0(uint32_t value);
+
+    uint32_t getUdpCommandDebugUint1();
+    void setUdpCommandDebugUint1(uint32_t value);
+
+    float getTcpDataDebugFloat0();
+    void setTcpDataDebugFloat0(float value);
+
+    float getTcpDataDebugFloat1();
+    void setTcpDataDebugFloat1(float value);
+
+    float getTcpDataDebugFloat2();
+    void setTcpDataDebugFloat2(float value);
+
+    float getTcpDataDebugFloat3();
+    void setTcpDataDebugFloat3(float value);
+
+    int32_t getTcpDataDebugInt0();
+    void setTcpDataDebugInt0(int32_t value);
+
+    int32_t getTcpDataDebugInt1();
+    void setTcpDataDebugInt1(int32_t value);
+
+    uint32_t getTcpDataDebugUint0();
+    void setTcpDataDebugUint0(uint32_t value);
+
+    uint32_t getTcpDataDebugUint1();
+    void setTcpDataDebugUint1(uint32_t value);
+
+    float getTcpCommandDebugFloat0();
+    void setTcpCommandDebugFloat0(float value);
+
+    float getTcpCommandDebugFloat1();
+    void setTcpCommandDebugFloat1(float value);
+
+    float getTcpCommandDebugFloat2();
+    void setTcpCommandDebugFloat2(float value);
+
+    float getTcpCommandDebugFloat3();
+    void setTcpCommandDebugFloat3(float value);
+
+    int32_t getTcpCommandDebugInt0();
+    void setTcpCommandDebugInt0(int32_t value);
+
+    int32_t getTcpCommandDebugInt1();
+    void setTcpCommandDebugInt1(int32_t value);
+
+    uint32_t getTcpCommandDebugUint0();
+    void setTcpCommandDebugUint0(uint32_t value);
+
+    uint32_t getTcpCommandDebugUint1();
+    void setTcpCommandDebugUint1(uint32_t value);
+
 
 private:
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
@@ -175,6 +298,9 @@ private:
     std::atomic_uint32_t _wantedPhaseA{0};
     std::atomic_uint32_t _wantedPhaseB{0};
     std::atomic_uint32_t _wantedPhaseC{0};
+    std::atomic_uint32_t _computedPhaseA{0};
+    std::atomic_uint32_t _computedPhaseB{0};
+    std::atomic_uint32_t _computedPhaseC{0};
     std::atomic_uint32_t _udpAsPeripheralHeader{0};
 
     constexpr static uint32_t _udpFromPeripheralBufferCapacity{1024};
@@ -242,6 +368,44 @@ private:
     std::atomic_uint32_t _positionKd{0};
     std::atomic_uint32_t _positionSetpoint{0};
     std::atomic_uint32_t _positionControlFrequency{100};
+    std::atomic_uint32_t _accX{0};
+    std::atomic_uint32_t _accY{0};
+    std::atomic_uint32_t _accZ{0};
+    std::atomic_uint32_t _gyroX{0};
+    std::atomic_uint32_t _gyroY{0};
+    std::atomic_uint32_t _gyroZ{0};
+    std::atomic_uint32_t _udpDataDebugFloat0{0};
+    std::atomic_uint32_t _udpDataDebugFloat1{0};
+    std::atomic_uint32_t _udpDataDebugFloat2{0};
+    std::atomic_uint32_t _udpDataDebugFloat3{0};
+    std::atomic_int32_t _udpDataDebugInt0{0};
+    std::atomic_int32_t _udpDataDebugInt1{0};
+    std::atomic_uint32_t _udpDataDebugUint0{0};
+    std::atomic_uint32_t _udpDataDebugUint1{0};
+    std::atomic_uint32_t _udpCommandDebugFloat0{0};
+    std::atomic_uint32_t _udpCommandDebugFloat1{0};
+    std::atomic_uint32_t _udpCommandDebugFloat2{0};
+    std::atomic_uint32_t _udpCommandDebugFloat3{0};
+    std::atomic_int32_t _udpCommandDebugInt0{0};
+    std::atomic_int32_t _udpCommandDebugInt1{0};
+    std::atomic_uint32_t _udpCommandDebugUint0{0};
+    std::atomic_uint32_t _udpCommandDebugUint1{0};
+    std::atomic_uint32_t _tcpDataDebugFloat0{0};
+    std::atomic_uint32_t _tcpDataDebugFloat1{0};
+    std::atomic_uint32_t _tcpDataDebugFloat2{0};
+    std::atomic_uint32_t _tcpDataDebugFloat3{0};
+    std::atomic_int32_t _tcpDataDebugInt0{0};
+    std::atomic_int32_t _tcpDataDebugInt1{0};
+    std::atomic_uint32_t _tcpDataDebugUint0{0};
+    std::atomic_uint32_t _tcpDataDebugUint1{0};
+    std::atomic_uint32_t _tcpCommandDebugFloat0{0};
+    std::atomic_uint32_t _tcpCommandDebugFloat1{0};
+    std::atomic_uint32_t _tcpCommandDebugFloat2{0};
+    std::atomic_uint32_t _tcpCommandDebugFloat3{0};
+    std::atomic_int32_t _tcpCommandDebugInt0{0};
+    std::atomic_int32_t _tcpCommandDebugInt1{0};
+    std::atomic_uint32_t _tcpCommandDebugUint0{0};
+    std::atomic_uint32_t _tcpCommandDebugUint1{0};
 };
 
 extern GlobalVariableManager globalVariableManager;
