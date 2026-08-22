@@ -140,10 +140,16 @@ extern "C" void app_main(void) {
             lsm.read_temperature(lsm_temp) == ESP_OK) {
                 // printf("LSM6DSO: accel(%.2f %.2f %.2f) gyro(%.2f %.2f %.2f) %.2fC\n",
                 //    ax, ay, az, gx, gy, gz, lsm_temp);
-            }
 
+                globalVariableManager.setAccX(ax);
+                globalVariableManager.setAccY(ay);
+                globalVariableManager.setAccZ(az);
+                globalVariableManager.setGyroX(gx);
+                globalVariableManager.setGyroY(gy);
+                globalVariableManager.setGyroZ(gz);
+            }
         
         focTask.update();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
