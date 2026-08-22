@@ -497,7 +497,7 @@ void tcp_as_peripheral_task(void *arg) {
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
 
-                    printf("Setting bit %i \n", i);
+                    // printf("Setting bit %i \n", i);
 
                     switch (i)
                     {
@@ -678,7 +678,7 @@ void tcp_as_peripheral_task(void *arg) {
                 for (int i = 1; i < 32; i++) {
                     if (!headerBits[i]) { continue; }
 
-                    printf("Reading bit %i \n", i);
+                    // printf("Reading bit %i \n", i);
 
                     switch (i)
                     {
@@ -786,7 +786,7 @@ void tcp_as_peripheral_task(void *arg) {
 
             }
 
-            printf("Sending %li bytes.\n", len - inBufCommandOffset);
+            // printf("Sending %li bytes.\n", len - inBufCommandOffset);
             globalVariableManager.setTcpFromControllerBuffer(message + inBufCommandOffset, len - inBufCommandOffset);
 
             auto newLenght = globalVariableManager.getTcpFromPeripheralBuffer(outBuf + outBufOffset, outBufCapacity - outBufOffset, true);
@@ -795,11 +795,11 @@ void tcp_as_peripheral_task(void *arg) {
             memcpy(outBuf, &outgoingLengthPrefix, 4);
 
             int sent = send(client_sock, outBuf, outBufOffset + newLenght, 0);
-            printf("Sent %d bytes of data. Newlength: %lu\n", sent, newLenght);
+            // printf("Sent %d bytes of data. Newlength: %lu\n", sent, newLenght);
             for (int ixOutBuf = 0; ixOutBuf < outBufOffset + newLenght; ixOutBuf++) {
-                printf("%u, ", outBuf[ixOutBuf]);
+                // printf("%u, ", outBuf[ixOutBuf]);
             }
-            printf("\n");
+            // printf("\n");
 
             if (sent < 0) {
                 printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
