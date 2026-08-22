@@ -1,13 +1,5 @@
 # Variables
 
-float, wantedPhaseA, 0.0f
-float, wantedPhaseB, 0.0f
-float, wantedPhaseC, 0.0f
-
-float, computedPhaseA, 0.0f
-float, computedPhaseB, 0.0f
-float, computedPhaseC, 0.0f
-
 uint32_t, udpAsPeripheralHeader, 0
 Buffer, udpFromPeripheralBuffer, 1024
 Buffer, udpFromControllerBuffer, 1024
@@ -34,6 +26,7 @@ uint32_t, ledStatus, 0
 uint32_t, buttonStatus, 0
 float, busVoltage, 0
 float, busCurrent, 0
+float, temperature, 0
 uint32_t, drivingMode, 0
 uint32_t, currentLimitPhase, 1000
 uint32_t, currentLimitBus, 5000

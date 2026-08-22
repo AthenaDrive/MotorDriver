@@ -11,12 +11,6 @@ DO NOT MODIFY THIS FILE.
 GlobalVariableManager globalVariableManager;
 
 GlobalVariableManager::GlobalVariableManager() {
-    atomic_store_float(_wantedPhaseA, 0.0f);
-    atomic_store_float(_wantedPhaseB, 0.0f);
-    atomic_store_float(_wantedPhaseC, 0.0f);
-    atomic_store_float(_computedPhaseA, 0.0f);
-    atomic_store_float(_computedPhaseB, 0.0f);
-    atomic_store_float(_computedPhaseC, 0.0f);
     atomic_store_float(_angle, 0.0f);
     atomic_store_float(_velocity, 0.0f);
     atomic_store_float(_acceleration, 0.0f);
@@ -26,6 +20,7 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_avgTorque, 0.0f);
     atomic_store_float(_busVoltage, 0);
     atomic_store_float(_busCurrent, 0);
+    atomic_store_float(_temperature, 0);
     atomic_store_float(_phaseRMSVoltage, 0.0f);
     atomic_store_float(_Ia, 0.0f);
     atomic_store_float(_Ib, 0.0f);
@@ -82,54 +77,6 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
     std::memcpy(&value, &bits, sizeof(value));
     return value;
 }
-float GlobalVariableManager::getWantedPhaseA() {
-    return atomic_load_float(_wantedPhaseA);
-}
-
-void GlobalVariableManager::setWantedPhaseA(float value) {
-    atomic_store_float(_wantedPhaseA, value);
-}
-
-float GlobalVariableManager::getWantedPhaseB() {
-    return atomic_load_float(_wantedPhaseB);
-}
-
-void GlobalVariableManager::setWantedPhaseB(float value) {
-    atomic_store_float(_wantedPhaseB, value);
-}
-
-float GlobalVariableManager::getWantedPhaseC() {
-    return atomic_load_float(_wantedPhaseC);
-}
-
-void GlobalVariableManager::setWantedPhaseC(float value) {
-    atomic_store_float(_wantedPhaseC, value);
-}
-
-float GlobalVariableManager::getComputedPhaseA() {
-    return atomic_load_float(_computedPhaseA);
-}
-
-void GlobalVariableManager::setComputedPhaseA(float value) {
-    atomic_store_float(_computedPhaseA, value);
-}
-
-float GlobalVariableManager::getComputedPhaseB() {
-    return atomic_load_float(_computedPhaseB);
-}
-
-void GlobalVariableManager::setComputedPhaseB(float value) {
-    atomic_store_float(_computedPhaseB, value);
-}
-
-float GlobalVariableManager::getComputedPhaseC() {
-    return atomic_load_float(_computedPhaseC);
-}
-
-void GlobalVariableManager::setComputedPhaseC(float value) {
-    atomic_store_float(_computedPhaseC, value);
-}
-
 uint32_t GlobalVariableManager::getUdpAsPeripheralHeader() {
     return _udpAsPeripheralHeader.load(std::memory_order_relaxed);
 }
@@ -376,6 +323,14 @@ float GlobalVariableManager::getBusCurrent() {
 
 void GlobalVariableManager::setBusCurrent(float value) {
     atomic_store_float(_busCurrent, value);
+}
+
+float GlobalVariableManager::getTemperature() {
+    return atomic_load_float(_temperature);
+}
+
+void GlobalVariableManager::setTemperature(float value) {
+    atomic_store_float(_temperature, value);
 }
 
 uint32_t GlobalVariableManager::getDrivingMode() {

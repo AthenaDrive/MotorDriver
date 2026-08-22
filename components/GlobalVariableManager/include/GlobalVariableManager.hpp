@@ -17,24 +17,6 @@ public:
     static constexpr float TWO_PI = 6.283185307179586f;
     static constexpr float PI_DIV_2 = 1.570796326794897;
 
-    float getWantedPhaseA();
-    void setWantedPhaseA(float value);
-
-    float getWantedPhaseB();
-    void setWantedPhaseB(float value);
-
-    float getWantedPhaseC();
-    void setWantedPhaseC(float value);
-
-    float getComputedPhaseA();
-    void setComputedPhaseA(float value);
-
-    float getComputedPhaseB();
-    void setComputedPhaseB(float value);
-
-    float getComputedPhaseC();
-    void setComputedPhaseC(float value);
-
     uint32_t getUdpAsPeripheralHeader();
     void setUdpAsPeripheralHeader(uint32_t value);
 
@@ -103,6 +85,9 @@ public:
 
     float getBusCurrent();
     void setBusCurrent(float value);
+
+    float getTemperature();
+    void setTemperature(float value);
 
     uint32_t getDrivingMode();
     void setDrivingMode(uint32_t value);
@@ -295,12 +280,6 @@ private:
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
-    std::atomic_uint32_t _wantedPhaseA{0};
-    std::atomic_uint32_t _wantedPhaseB{0};
-    std::atomic_uint32_t _wantedPhaseC{0};
-    std::atomic_uint32_t _computedPhaseA{0};
-    std::atomic_uint32_t _computedPhaseB{0};
-    std::atomic_uint32_t _computedPhaseC{0};
     std::atomic_uint32_t _udpAsPeripheralHeader{0};
 
     constexpr static uint32_t _udpFromPeripheralBufferCapacity{1024};
@@ -344,6 +323,7 @@ private:
     std::atomic_uint32_t _buttonStatus{0};
     std::atomic_uint32_t _busVoltage{0};
     std::atomic_uint32_t _busCurrent{0};
+    std::atomic_uint32_t _temperature{0};
     std::atomic_uint32_t _drivingMode{0};
     std::atomic_uint32_t _currentLimitPhase{1000};
     std::atomic_uint32_t _currentLimitBus{5000};
