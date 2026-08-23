@@ -29,6 +29,20 @@
 #define MCP_PIN_B6      14
 #define MCP_PIN_B7      15
 
+#define LED_0           MCP_PIN_A0
+#define LED_1           MCP_PIN_A1
+#define LED_2           MCP_PIN_A2
+#define DIP_SWITCH_0    MCP_PIN_A3
+#define DIP_SWITCH_1    MCP_PIN_A4
+// A5 - A7 is defined with DRV pins.
+
+#define INA_ALERT       MCP_PIN_B0
+#define SD_CARD_DETECT  MCP_PIN_B1
+// B2 - B4 is defined with DRV pins.
+#define ETHERNET_RESET_0 MCP_PIN_B5
+#define ETHERNET_RESET_1 MCP_PIN_B6
+#define TEMP_OS          MCP_PIN_B7
+
 // ============================================================
 // SPI Buses
 // ============================================================
