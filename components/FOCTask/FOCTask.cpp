@@ -40,12 +40,13 @@ void FOCTask::begin() {
         .arg = this,
         .dispatch_method = ESP_TIMER_TASK,
         .name = "FOCTimer",
+        .skip_unhandled_events = true, // Never use light sleep, but whatever.
     };
 
     esp_timer_create(&timerArgs, &focTimer);
     // TODO!
     // Currently slower than 50us, just for debug.
-    esp_timer_start_periodic(focTimer, 5000);
+    esp_timer_start_periodic(focTimer, 1000);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -63,21 +64,23 @@ void FOCTask::update() {
         globalVariableManager.setVelocity(velocity);
     }
 
-    uint16_t drv_fault, drv_vgs;
-    if (_drv.read_fault_status(drv_fault) == ESP_OK) {
-        if (_drv.has_fault(drv_fault, DRV8323::FAULT_FLT)) {
-            // printf("DRV8323: FAULT=0x%04X\n", drv_fault);
-        }
-    }
-    if (_drv.read_vgs_status(drv_vgs) == ESP_OK) {
-        if (drv_vgs) {
-            // printf("DRV8323: VGS=0x%04X\n", drv_vgs);
-        }
-    }
+    uint16_t drv_fault = 0;
+    uint16_t drv_vgs = 0;
+    // if (_drv.read_fault_status(drv_fault) == ESP_OK) {
+    //     if (_drv.has_fault(drv_fault, DRV8323::FAULT_FLT)) {
+    //         // printf("DRV8323: FAULT=0x%04X\n", drv_fault);
+    //     }
+    // }
+    // if (_drv.read_vgs_status(drv_vgs) == ESP_OK) {
+    //     if (drv_vgs) {
+    //         // printf("DRV8323: VGS=0x%04X\n", drv_vgs);
+    //     }
+    // }
     // TODO: Not sure if this will be fucky wucky since datatype is 16 bit.
     globalVariableManager.setErrorFlags((drv_fault << 16) + drv_vgs);
 
     float iqRef = 0.0f;
+    iqRef = globalVariableManager.getTorqueSetpoint();
     float numPolePairs = -20.0;
     float elPos = fmod((angle * numPolePairs), GlobalVariableManager::TWO_PI);
     _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, 0.0f, 0.0f);
