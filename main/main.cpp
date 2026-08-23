@@ -117,13 +117,21 @@ extern "C" void app_main(void) {
     float ax, ay, az, gx, gy, gz, lsm_temp, angle;
     
     while (1) {
-        bool switchSignal = false;
-        mcp.digital_read(MCP_PIN_A3, switchSignal);
-        mcp.digital_write(MCP_PIN_A0, switchSignal);
-        globalVariableManager.setLedStatus(switchSignal);
+        int64_t t0 = esp_timer_get_time();
+
+        bool switch0, switch1;
+        mcp.digital_read(DIP_SWITCH_0, switch0);
+        mcp.digital_read(DIP_SWITCH_1, switch1);
+        globalVariableManager.setButtonStatus((switch0 << 1) + switch1);
+
+        uint32_t ledStatus = globalVariableManager.getLedStatus();
+        mcp.digital_write(LED_0, (ledStatus & 1) == 1);
+        mcp.digital_write(LED_1, (ledStatus & 2) == 2);
+        mcp.digital_write(LED_2, (ledStatus & 4) == 4);
 
         if (lm75.read_temperature(temp) == ESP_OK) {
             // printf("LM75A: %.2f C\n", temp);
+            globalVariableManager.setTemperature(temp);
         }
 
         if (ina.read_bus_voltage(vbus) == ESP_OK &&
@@ -150,6 +158,9 @@ extern "C" void app_main(void) {
             }
         
         focTask.update();
+
+        int64_t t1 = esp_timer_get_time();
+        globalVariableManager.setAvgLoopTimeSecondary(t1 - t0);
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }

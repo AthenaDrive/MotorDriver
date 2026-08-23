@@ -1,6 +1,7 @@
 #include "FOCTask.hpp"
 #include "GlobalVariableManager.hpp"
 
+#include "esp_timer.h"
 #include <cmath>
 
 FOCTask::FOCTask(FOCTaskConfig &config)
@@ -33,9 +34,6 @@ void FOCTask::begin() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
-
-    globalVariableManager.setUdpCommandDebugFloat0(0.0f);
-    globalVariableManager.setUdpCommandDebugFloat3(0.0f);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -46,6 +44,7 @@ float constrain(float val, float minV, float maxV) {
 
 void FOCTask::update() {
 
+    int64_t t0 = esp_timer_get_time();
     float angle, velocity, acceleration;
     if (_encoder.completeRead(angle, velocity, acceleration) == ESP_OK) {
         globalVariableManager.setAngle(angle);
@@ -63,43 +62,22 @@ void FOCTask::update() {
             // printf("DRV8323: VGS=0x%04X\n", drv_vgs);
         }
     }
+    // TODO: Not sure if this will be fucky wucky since datatype is 16 bit.
+    globalVariableManager.setErrorFlags((drv_fault << 16) + drv_vgs);
 
-    float iqRef  = globalVariableManager.getUdpCommandDebugFloat0();
-    float offset = globalVariableManager.getUdpCommandDebugFloat3();
+    float iqRef = 0.0f;
     float numPolePairs = -20.0;
     float elPos = fmod((angle * numPolePairs), GlobalVariableManager::TWO_PI);
-    _out = _controller.update(iqRef, elPos + offset, 0.0f, 0.0f, 0.0f);
+    _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, 0.0f, 0.0f);
 
     float maxVal = 4.0f;
-    if (fabs(_out.phaseA) > maxVal) {
-        _out.phaseA = _out.phaseA < 0 ? -maxVal : maxVal;
-    }
-
-    if (fabs(_out.phaseB) > maxVal) {
-        _out.phaseB = _out.phaseB < 0 ? -maxVal : maxVal;
-    }
-
-    if (fabs(_out.phaseC) > maxVal) {
-        _out.phaseC = _out.phaseC < 0 ? -maxVal : maxVal;
-    }
+    _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
+    _out.phaseB = constrain(_out.phaseB, -maxVal, maxVal);
+    _out.phaseC = constrain(_out.phaseC, -maxVal, maxVal);
 
     _out.phaseA += 50.0;
     _out.phaseB += 50.0;
     _out.phaseC += 50.0;
-
-    globalVariableManager.setUdpDataDebugFloat0(_out.phaseA);
-    globalVariableManager.setUdpDataDebugFloat1(_out.phaseB);
-    globalVariableManager.setUdpDataDebugFloat2(_out.phaseC);
-
-    float tmpA = globalVariableManager.getUdpCommandDebugFloat0();
-    float tmpB = globalVariableManager.getUdpCommandDebugFloat1();
-    float tmpC = globalVariableManager.getUdpCommandDebugFloat2();
-
-    // printf("Offset / Wanted / Computed: %f / %f, %f, %f / %f, %f, %f\n", offset, tmpA, tmpB, tmpC, _out.phaseA, _out.phaseB, _out.phaseC);
-
-    tmpA = constrain(tmpA, 48.0f, 52.0f);
-    tmpB = constrain(tmpB, 48.0f, 52.0f);
-    tmpC = constrain(tmpC, 48.0f, 52.0f);
 
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, _out.phaseA);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
@@ -107,4 +85,12 @@ void FOCTask::update() {
 
     globalVariableManager.setAngle(angle);
     globalVariableManager.setVelocity(velocity);
+    globalVariableManager.setAcceleration(acceleration);
+    globalVariableManager.setTorqueSetpoint(iqRef);
+
+    int64_t t1 = esp_timer_get_time();
+    // TODO: Add small lowpass maybe? Or rename variable
+    // I know in theory the 64 bit time could overflow
+    // the 32 bit, dont care, probably not going to happen.
+    globalVariableManager.setAvgLoopTimeFOC(t1 - t0);
 }

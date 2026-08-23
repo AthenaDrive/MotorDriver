@@ -39,5 +39,7 @@ private:
     Controller _controller;
 
     Output _out;
+
+    float _elPosOffset = 0.0f;
 };
 
