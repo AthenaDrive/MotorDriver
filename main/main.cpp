@@ -38,6 +38,8 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(lsm.init());
 
     mcp.pin_mode(MCP_PIN_A0, true);
+    mcp.pin_mode(MCP_PIN_A1, true);
+    mcp.pin_mode(MCP_PIN_A2, true);
     mcp.pin_mode(MCP_PIN_A3, false);
 
     mcp.pin_mode(DRV8323_INLA, true);
