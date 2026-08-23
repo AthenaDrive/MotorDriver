@@ -619,6 +619,12 @@ void tcp_as_peripheral_task(void *arg) {
                             globalVariableManager.setErrorFlags(errorFlags);
                         } break;
 
+                        case 21: {
+                            uint32_t ledStatus;
+                            memcpy(&ledStatus, message + inBufCommandOffset, 4);
+                            globalVariableManager.setLedStatus(ledStatus);
+                        } break;
+
                         case 24: {
                             float tcpCommandDebugFloat0;
                             memcpy(&tcpCommandDebugFloat0, message + inBufCommandOffset, 4);
@@ -690,11 +696,6 @@ void tcp_as_peripheral_task(void *arg) {
                         case 2: {
                             float busCurrent = globalVariableManager.getBusCurrent();
                             memcpy(outBuf + outBufOffset, &busCurrent, 4);
-                        } break;
-
-                        case 3: {
-                            uint32_t ledStatus = globalVariableManager.getLedStatus();
-                            memcpy(outBuf + outBufOffset, &ledStatus, 4);
                         } break;
 
                         case 4: {
