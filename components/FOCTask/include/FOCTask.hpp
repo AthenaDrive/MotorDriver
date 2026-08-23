@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "esp_timer.h"
 
 #include "MCPWMDriver.hpp"
 #include "ADCOneshot.hpp"
@@ -37,9 +38,10 @@ private:
     AS5047P _encoder;
     DRV8323 _drv;
     Controller _controller;
-
     Output _out;
 
     float _elPosOffset = 0.0f;
+
+    static void taskEntry(void *pvParameters);
 };
 

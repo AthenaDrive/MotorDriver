@@ -1,7 +1,6 @@
 #include "FOCTask.hpp"
 #include "GlobalVariableManager.hpp"
 
-#include "esp_timer.h"
 #include <cmath>
 
 FOCTask::FOCTask(FOCTaskConfig &config)
@@ -34,6 +33,19 @@ void FOCTask::begin() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+
+    esp_timer_handle_t focTimer;
+    esp_timer_create_args_t timerArgs = {
+        .callback = taskEntry,
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "FOCTimer",
+    };
+
+    esp_timer_create(&timerArgs, &focTimer);
+    // TODO!
+    // Currently slower than 50us, just for debug.
+    esp_timer_start_periodic(focTimer, 5000);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -93,4 +105,9 @@ void FOCTask::update() {
     // I know in theory the 64 bit time could overflow
     // the 32 bit, dont care, probably not going to happen.
     globalVariableManager.setAvgLoopTimeFOC(t1 - t0);
+}
+
+void FOCTask::taskEntry(void *pvParameters) {
+    FOCTask *focTask = static_cast<FOCTask *>(pvParameters);
+    focTask->update();
 }
