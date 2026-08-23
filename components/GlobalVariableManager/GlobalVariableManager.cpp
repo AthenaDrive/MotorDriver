@@ -14,10 +14,10 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_angle, 0.0f);
     atomic_store_float(_velocity, 0.0f);
     atomic_store_float(_acceleration, 0.0f);
-    atomic_store_float(_torque, 0.0f);
+    atomic_store_float(_targetTorque, 0.0f);
     atomic_store_float(_avgVelocity, 0.0f);
     atomic_store_float(_avgAcceleration, 0.0f);
-    atomic_store_float(_avgTorque, 0.0f);
+    atomic_store_float(_avgTargetTorque, 0.0f);
     atomic_store_float(_busVoltage, 0);
     atomic_store_float(_busCurrent, 0);
     atomic_store_float(_temperature, 0);
@@ -229,12 +229,12 @@ void GlobalVariableManager::setAcceleration(float value) {
     atomic_store_float(_acceleration, value);
 }
 
-float GlobalVariableManager::getTorque() {
-    return atomic_load_float(_torque);
+float GlobalVariableManager::getTargetTorque() {
+    return atomic_load_float(_targetTorque);
 }
 
-void GlobalVariableManager::setTorque(float value) {
-    atomic_store_float(_torque, value);
+void GlobalVariableManager::setTargetTorque(float value) {
+    atomic_store_float(_targetTorque, value);
 }
 
 float GlobalVariableManager::getAvgVelocity() {
@@ -253,12 +253,12 @@ void GlobalVariableManager::setAvgAcceleration(float value) {
     atomic_store_float(_avgAcceleration, value);
 }
 
-float GlobalVariableManager::getAvgTorque() {
-    return atomic_load_float(_avgTorque);
+float GlobalVariableManager::getAvgTargetTorque() {
+    return atomic_load_float(_avgTargetTorque);
 }
 
-void GlobalVariableManager::setAvgTorque(float value) {
-    atomic_store_float(_avgTorque, value);
+void GlobalVariableManager::setAvgTargetTorque(float value) {
+    atomic_store_float(_avgTargetTorque, value);
 }
 
 uint32_t GlobalVariableManager::getAvgLoopTimeFOC() {

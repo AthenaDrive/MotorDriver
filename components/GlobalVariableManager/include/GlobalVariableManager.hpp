@@ -50,8 +50,8 @@ public:
     float getAcceleration();
     void setAcceleration(float value);
 
-    float getTorque();
-    void setTorque(float value);
+    float getTargetTorque();
+    void setTargetTorque(float value);
 
     float getAvgVelocity();
     void setAvgVelocity(float value);
@@ -59,8 +59,8 @@ public:
     float getAvgAcceleration();
     void setAvgAcceleration(float value);
 
-    float getAvgTorque();
-    void setAvgTorque(float value);
+    float getAvgTargetTorque();
+    void setAvgTargetTorque(float value);
 
     uint32_t getAvgLoopTimeFOC();
     void setAvgLoopTimeFOC(uint32_t value);
@@ -311,10 +311,10 @@ private:
     std::atomic_uint32_t _angle{0};
     std::atomic_uint32_t _velocity{0};
     std::atomic_uint32_t _acceleration{0};
-    std::atomic_uint32_t _torque{0};
+    std::atomic_uint32_t _targetTorque{0};
     std::atomic_uint32_t _avgVelocity{0};
     std::atomic_uint32_t _avgAcceleration{0};
-    std::atomic_uint32_t _avgTorque{0};
+    std::atomic_uint32_t _avgTargetTorque{0};
     std::atomic_uint32_t _avgLoopTimeFOC{0};
     std::atomic_uint32_t _avgLoopTimeSecondary{0};
     std::atomic_uint32_t _errorFlags{0};

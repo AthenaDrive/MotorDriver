@@ -737,6 +737,11 @@ void tcp_as_peripheral_task(void *arg) {
                             memcpy(outBuf + outBufOffset, &errorFlags, 4);
                         } break;
 
+                        case 12: {
+                            float temperature = globalVariableManager.getTemperature();
+                            memcpy(outBuf + outBufOffset, &temperature, 4);
+                        }
+
                         case 24: {
                             float tcpDataDebugFloat0 = globalVariableManager.getTcpDataDebugFloat0();
                             memcpy(outBuf + outBufOffset, &tcpDataDebugFloat0, 4);

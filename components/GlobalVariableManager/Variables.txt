@@ -12,11 +12,11 @@ bool, actualCalibrationMode, false
 float, angle, 0.0f
 float, velocity, 0.0f
 float, acceleration, 0.0f
-float, torque, 0.0f
+float, targetTorque, 0.0f
 
 float, avgVelocity, 0.0f
 float, avgAcceleration, 0.0f
-float, avgTorque, 0.0f
+float, avgTargetTorque, 0.0f
 uint32_t, avgLoopTimeFOC, 0
 uint32_t, avgLoopTimeSecondary, 0
 
