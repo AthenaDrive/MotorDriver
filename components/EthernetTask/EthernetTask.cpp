@@ -161,7 +161,7 @@ void udp_as_peripheral_task(void *arg) {
                     } break;
 
                     case 4: {
-                        float torque = globalVariableManager.getTorque();
+                        float torque = globalVariableManager.getTargetTorque();
                         memcpy(packet + offset, &torque, 4);
                     } break;
 
@@ -740,7 +740,7 @@ void tcp_as_peripheral_task(void *arg) {
                         case 12: {
                             float temperature = globalVariableManager.getTemperature();
                             memcpy(outBuf + outBufOffset, &temperature, 4);
-                        }
+                        } break;
 
                         case 24: {
                             float tcpDataDebugFloat0 = globalVariableManager.getTcpDataDebugFloat0();
