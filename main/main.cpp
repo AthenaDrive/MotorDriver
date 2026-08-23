@@ -156,8 +156,6 @@ extern "C" void app_main(void) {
                 globalVariableManager.setGyroY(gy);
                 globalVariableManager.setGyroZ(gz);
             }
-        
-        focTask.update();
 
         int64_t t1 = esp_timer_get_time();
         globalVariableManager.setAvgLoopTimeSecondary(t1 - t0);
