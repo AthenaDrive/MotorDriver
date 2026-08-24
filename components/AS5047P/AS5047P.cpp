@@ -133,48 +133,6 @@ esp_err_t AS5047P::read_angle(float &degrees, bool with_daec) {
     return ESP_OK;
 }
 
-esp_err_t AS5047P::completeRead(float &angle,
-                                float &velocity,
-                                float &acceleration)
-{
-    uint16_t raw;
-
-    esp_err_t ret = read_angle_raw(raw, true);
-    if (ret != ESP_OK) return ret;
-
-    // Position in radians
-    angle = _raw_to_radians(raw);
-
-    // Calculate shortest angular displacement [-pi, pi]
-    float delta = angle - _prev_angle;
-
-    while (delta > M_PI)  delta -= 2.0f * M_PI;
-    while (delta < -M_PI) delta += 2.0f * M_PI;
-
-    int64_t now = esp_timer_get_time();
-
-    if (_has_prev_read && now > _prev_time_us) {
-        float dt = (now - _prev_time_us) / 1e6f;
-
-        // Angular velocity [rad/s]
-        velocity = delta / dt;
-
-        // Angular acceleration [rad/s^2]
-        acceleration = (velocity - _prev_velocity) / dt;
-    } else {
-        velocity = 0.0f;
-        acceleration = 0.0f;
-    }
-
-    // Save state for the next measurement
-    _prev_angle = angle;
-    _prev_velocity = velocity;
-    _prev_time_us = now;
-    _has_prev_read = true;
-
-    return ESP_OK;
-}
-
 esp_err_t AS5047P::pipeline_start() {
     uint16_t cmd = _apply_parity(ENCODER_RW_READ | (ANGLECOM & ENCODER_ADDR_MASK));
     uint16_t rx;
@@ -185,11 +143,11 @@ esp_err_t AS5047P::pipeline_start() {
     return ret;
 }
 
-esp_err_t AS5047P::pipeline_read_angle(float &degrees, bool with_daec) {
+esp_err_t AS5047P::pipeline_read_angle(float &radians, bool with_daec) {
     if (!_pipeline_active) {
         esp_err_t ret = pipeline_start();
         if (ret != ESP_OK) return ret;
-        degrees = 0.0f;
+        radians = 0.0f;
         return ESP_OK;
     }
     uint16_t reg = with_daec ? ANGLECOM : ANGLEUNC;
@@ -197,6 +155,6 @@ esp_err_t AS5047P::pipeline_read_angle(float &degrees, bool with_daec) {
     uint16_t rx;
     esp_err_t ret = _transfer(cmd, rx);
     if (ret != ESP_OK) return ret;
-    degrees = _raw_to_degrees(rx);
+    radians = _raw_to_radians(rx);
     return ESP_OK;
 }
