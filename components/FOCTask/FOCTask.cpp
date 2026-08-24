@@ -8,7 +8,9 @@ FOCTask::FOCTask(FOCTaskConfig &config)
     _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI),
     _encoder(_spi, _config.cAS5047P_CS),
     _drv(_spi, _config.cDRV8323_CS, 1, 500000),
-    _controller({1.0, 0.0, 1.0, 0.0, 10.0, 10.0}) {
+    _controller({1.0, 0.0, 1.0, 0.0, 10.0, 10.0}),
+    _cascadePID({1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}),
+    _prevTime(esp_timer_get_time()) {
 }
 
 void FOCTask::begin() {
@@ -58,11 +60,20 @@ float constrain(float val, float minV, float maxV) {
 void FOCTask::update() {
 
     int64_t t0 = esp_timer_get_time();
-    float angle, velocity, acceleration;
-    if (_encoder.completeRead(angle, velocity, acceleration) == ESP_OK) {
-        globalVariableManager.setAngle(angle);
-        globalVariableManager.setVelocity(velocity);
+    // Yes, i know dt is not in seconds.
+    // Dont really care, just adjust PID tune.
+    float dt = static_cast<float>(t0 - _prevTime);
+    _prevTime = t0;
+
+    float angle, cumulativeAngle, velocity, acceleration;
+    if (_encoder.pipeline_read_angle(angle, true) != ESP_OK) {
+        return;
     }
+
+    _stateEstimation.estimate(angle, cumulativeAngle, velocity, acceleration);
+    globalVariableManager.setAngle(cumulativeAngle);
+    globalVariableManager.setVelocity(velocity);
+    globalVariableManager.setAcceleration(acceleration);
 
     uint16_t drv_fault = 0;
     uint16_t drv_vgs = 0;
@@ -77,12 +88,15 @@ void FOCTask::update() {
     //     }
     // }
     // TODO: Not sure if this will be fucky wucky since datatype is 16 bit.
-    globalVariableManager.setErrorFlags((drv_fault << 16) + drv_vgs);
+    // globalVariableManager.setErrorFlags((drv_fault << 16) + drv_vgs);
 
     float iqRef = 0.0f;
-    iqRef = globalVariableManager.getTorqueSetpoint();
+    _cascadePID.compute(iqRef, dt);
+
     float numPolePairs = -20.0;
     float elPos = fmod((angle * numPolePairs), GlobalVariableManager::TWO_PI);
+
+    // TODO: Need to actually use velocity when its not horribly noisy.
     _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, 0.0f, 0.0f);
 
     float maxVal = 4.0f;
@@ -98,9 +112,6 @@ void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
 
-    globalVariableManager.setAngle(angle);
-    globalVariableManager.setVelocity(velocity);
-    globalVariableManager.setAcceleration(acceleration);
     globalVariableManager.setTorqueSetpoint(iqRef);
 
     int64_t t1 = esp_timer_get_time();

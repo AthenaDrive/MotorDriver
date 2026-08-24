@@ -9,6 +9,8 @@
 #include "MCPWMDriver.hpp"
 #include "ADCOneshot.hpp"
 #include "Controller.hpp"
+#include "StateEstimation.hpp"
+#include "CascadingPID.hpp"
 
 #include "AS5047P.hpp"
 #include "DRV8323.hpp"
@@ -36,10 +38,13 @@ private:
     SPIBase _spi;
     MCPWMDriver _pwm;
     AS5047P _encoder;
+    StateEstimation _stateEstimation;
     DRV8323 _drv;
     Controller _controller;
+    CascadingPID _cascadePID;
     Output _out;
 
+    int64_t _prevTime;
     float _elPosOffset = 0.0f;
 
     static void taskEntry(void *pvParameters);
