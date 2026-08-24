@@ -116,7 +116,7 @@ extern "C" void app_main(void) {
     printf("All sensors, SD card, Ethernet, PWM, and ADC initialized.\n");
 
     float temp, vbus, vshunt, current, power;
-    float ax, ay, az, gx, gy, gz, lsm_temp, angle;
+    float ax, ay, az, gx, gy, gz, lsm_temp;
     
     while (1) {
         int64_t t0 = esp_timer_get_time();
