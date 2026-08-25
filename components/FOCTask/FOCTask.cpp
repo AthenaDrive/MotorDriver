@@ -99,7 +99,7 @@ void FOCTask::update() {
     // TODO: Need to actually use velocity when its not horribly noisy.
     _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, 0.0f, 0.0f);
 
-    float maxVal = 4.0f;
+    float maxVal = 20.0f;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
     _out.phaseB = constrain(_out.phaseB, -maxVal, maxVal);
     _out.phaseC = constrain(_out.phaseC, -maxVal, maxVal);
