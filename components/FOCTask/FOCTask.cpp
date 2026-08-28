@@ -45,10 +45,12 @@ void FOCTask::begin() {
         .skip_unhandled_events = true, // Never use light sleep, but whatever.
     };
 
+    _adc.init(0.0035f, 20.0f, 1.65f);
+
     esp_timer_create(&timerArgs, &focTimer);
     // TODO!
     // Currently slower than 50us, just for debug.
-    esp_timer_start_periodic(focTimer, 1000);
+    esp_timer_start_periodic(focTimer, 5000);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -69,6 +71,11 @@ void FOCTask::update() {
     if (_encoder.pipeline_read_angle(angle, true) != ESP_OK) {
         return;
     }
+
+    float Ia, Ib, Ic;
+    _adc.read_current_amps(ADCOneshot::CHANNEL_A, Ia);
+    _adc.read_current_amps(ADCOneshot::CHANNEL_B, Ib);
+    _adc.read_current_amps(ADCOneshot::CHANNEL_C, Ic);
 
     _stateEstimation.estimate(angle, cumulativeAngle, velocity, acceleration);
     globalVariableManager.setAngle(cumulativeAngle);

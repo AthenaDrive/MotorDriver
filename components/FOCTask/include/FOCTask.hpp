@@ -38,6 +38,7 @@ private:
     SPIBase _spi;
     MCPWMDriver _pwm;
     AS5047P _encoder;
+    ADCOneshot _adc;
     StateEstimation _stateEstimation;
     DRV8323 _drv;
     Controller _controller;
