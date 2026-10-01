@@ -25,33 +25,22 @@ extern "C" void app_main(void) {
     I2CBase i2c(PIN_SDA, PIN_SCL, I2C_FREQ);
     ESP_ERROR_CHECK(i2c.init());
 
-    MCP23017 mcp(i2c, MCP23017_ADDR);
     LM75A lm75(i2c, LM75AD_ADDR);
     INA238 ina(i2c, INA238_ADDR);
     LSM6DSO lsm(i2c, LSM6DSO_ADDR);
 
-    ESP_ERROR_CHECK(mcp.init());
     ESP_ERROR_CHECK(lm75.init());
     ESP_ERROR_CHECK(ina.init());
     ina.set_adc_config(INA238_ADC_CONFIG);
     ina.calibrate(INA238_SHUNT_OHM, INA238_MAX_CURRENT_A);
     ESP_ERROR_CHECK(lsm.init());
 
-    mcp.pin_mode(MCP_PIN_A0, true);
-    mcp.pin_mode(MCP_PIN_A1, true);
-    mcp.pin_mode(MCP_PIN_A2, true);
-    mcp.pin_mode(MCP_PIN_A3, false);
+    gpio_set_direction(DRV8323_INL, GPIO_MODE_OUTPUT);
+    gpio_set_level(DRV8323_INL, 0);
 
-    mcp.pin_mode(DRV8323_INLA, true);
-    mcp.pin_mode(DRV8323_INLB, true);
-    mcp.pin_mode(DRV8323_INLC, true);
-    mcp.digital_write(DRV8323_INLA, false);
-    mcp.digital_write(DRV8323_INLB, false);
-    mcp.digital_write(DRV8323_INLC, false);
-
-    mcp.pin_mode(MCP_PIN_B2, false); // Motor FAULT
-    mcp.pin_mode(DRV8323_ENABLE, true);
-    mcp.digital_write(DRV8323_ENABLE, true);
+    gpio_set_direction(DRV8323_nFAULT, GPIO_MODE_INPUT);
+    gpio_set_direction(DRV8323_ENABLE, GPIO_MODE_OUTPUT);
+    gpio_set_level(DRV8323_ENABLE, 1);
 
     gpio_install_isr_service(0);
     // Both SdCard (sdspi_host) and W5500 (esp_eth) use SPI3_HOST directly,
@@ -68,9 +57,6 @@ extern "C" void app_main(void) {
     bus1_cfg.data7_io_num = -1;
     bus1_cfg.max_transfer_sz = 4096;
     ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &bus1_cfg, SPI_DMA_CH_AUTO));
-
-    // SdCard sd(SPI3_HOST, SD_CARD_CS);
-    // ESP_ERROR_CHECK(sd.init());
 
     EthernetTaskConfig ethConfig{
         .cW5500_0_CS = W5500_0_CS,
@@ -98,9 +84,7 @@ extern "C" void app_main(void) {
     printf("\nPowered up!\n");
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    mcp.digital_write(DRV8323_INLA, true);
-    mcp.digital_write(DRV8323_INLB, true);
-    mcp.digital_write(DRV8323_INLC, true);
+    gpio_set_level(DRV8323_INL, 1);
 
     FOCTaskConfig focConfig{
         .cDRV8323_CS = DRV8323_CS,
@@ -120,16 +104,6 @@ extern "C" void app_main(void) {
     
     while (1) {
         int64_t t0 = esp_timer_get_time();
-
-        bool switch0, switch1;
-        mcp.digital_read(DIP_SWITCH_0, switch0);
-        mcp.digital_read(DIP_SWITCH_1, switch1);
-        globalVariableManager.setButtonStatus((switch0 << 1) + switch1);
-
-        uint32_t ledStatus = globalVariableManager.getLedStatus();
-        mcp.digital_write(LED_0, (ledStatus & 1) == 1);
-        mcp.digital_write(LED_1, (ledStatus & 2) == 2);
-        mcp.digital_write(LED_2, (ledStatus & 4) == 4);
 
         if (lm75.read_temperature(temp) == ESP_OK) {
             // printf("LM75A: %.2f C\n", temp);
