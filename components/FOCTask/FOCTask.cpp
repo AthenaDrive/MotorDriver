@@ -32,9 +32,9 @@ void FOCTask::begin() {
         printf("Register %i: %i\n", i, drvReg);
     }
 
-    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 52.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 49.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 49.0f);
 
     esp_timer_handle_t focTimer;
     esp_timer_create_args_t timerArgs = {
@@ -50,7 +50,7 @@ void FOCTask::begin() {
     esp_timer_create(&timerArgs, &focTimer);
     // TODO!
     // Currently slower than 50us, just for debug.
-    esp_timer_start_periodic(focTimer, 5000);
+    esp_timer_start_periodic(focTimer, 1000);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -72,11 +72,6 @@ void FOCTask::update() {
         return;
     }
 
-    float Ia, Ib, Ic;
-    _adc.read_current_amps(ADCOneshot::CHANNEL_A, Ia);
-    _adc.read_current_amps(ADCOneshot::CHANNEL_B, Ib);
-    _adc.read_current_amps(ADCOneshot::CHANNEL_C, Ic);
-
     _stateEstimation.estimate(angle, cumulativeAngle, velocity, acceleration);
     globalVariableManager.setAngle(cumulativeAngle);
     globalVariableManager.setVelocity(velocity);
@@ -97,16 +92,29 @@ void FOCTask::update() {
     // TODO: Not sure if this will be fucky wucky since datatype is 16 bit.
     // globalVariableManager.setErrorFlags((drv_fault << 16) + drv_vgs);
 
-    float iqRef = 0.0f;
-    _cascadePID.compute(iqRef, dt);
+    if (_remainingCalibrationLoops > 1) {
+        _remainingCalibrationLoops -= 1;
 
-    float numPolePairs = -20.0;
+        _sumElPosOffset += angle;
+        _numElPosOffsetSamples += 1;
+        return;
+    } else if (_remainingCalibrationLoops == 1) {
+        _remainingCalibrationLoops = 0;
+
+        _sumElPosOffset += angle;
+        _numElPosOffsetSamples += 1;
+        _elPosOffset = _sumElPosOffset / static_cast<float>(_numElPosOffsetSamples);
+        return;
+    }
+
+    float numPolePairs = static_cast<float>(globalVariableManager.getNumPolePairs());
     float elPos = fmod((angle * numPolePairs), GlobalVariableManager::TWO_PI);
 
+    float iqRef = globalVariableManager.getTorqueSetpoint();
     // TODO: Need to actually use velocity when its not horribly noisy.
     _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, 0.0f, 0.0f);
 
-    float maxVal = 20.0f;
+    float maxVal = 10.0f;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
     _out.phaseB = constrain(_out.phaseB, -maxVal, maxVal);
     _out.phaseC = constrain(_out.phaseC, -maxVal, maxVal);
@@ -119,7 +127,6 @@ void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
 
-    globalVariableManager.setTorqueSetpoint(iqRef);
 
     int64_t t1 = esp_timer_get_time();
     // TODO: Add small lowpass maybe? Or rename variable

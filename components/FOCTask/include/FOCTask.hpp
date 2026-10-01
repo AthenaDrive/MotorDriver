@@ -46,6 +46,11 @@ private:
     Output _out;
 
     int64_t _prevTime;
+
+    uint32_t _remainingCalibrationLoops = 1000;
+
+    float _sumElPosOffset = 0.0f;
+    uint32_t _numElPosOffsetSamples = 0;
     float _elPosOffset = 0.0f;
 
     static void taskEntry(void *pvParameters);
