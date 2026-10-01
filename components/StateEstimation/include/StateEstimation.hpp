@@ -4,6 +4,8 @@
 #include "esp_err.h"
 #include "esp_timer.h"
 
+#include "LowpassFilter.hpp"
+
 class StateEstimation {
 public:
     StateEstimation();
@@ -24,4 +26,8 @@ private:
     
     int64_t _prev_time_us = 0;
     bool _has_prev_read = false;
+
+    LowpassFilter _lowpassAngle{0.01f};
+    LowpassFilter _lowpassVelocity{0.01f};
+    LowpassFilter _lowpassAcceleration{0.01f};
 };
