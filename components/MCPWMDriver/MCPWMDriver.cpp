@@ -6,9 +6,9 @@
 static const char *TAG = "MCPWMDriver";
 
 static const gpio_num_t CHANNEL_GPIOS[3] = {
-    GPIO_NUM_42,
-    GPIO_NUM_41,
+    GPIO_NUM_39,
     GPIO_NUM_40,
+    GPIO_NUM_41,
 };
 
 MCPWMDriver::MCPWMDriver()
