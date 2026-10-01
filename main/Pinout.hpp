@@ -9,41 +9,6 @@
 #define PIN_SCL     GPIO_NUM_12
 
 // ============================================================
-// MCP23017 pin aliases (0-7 = PORTA, 8-15 = PORTB)
-// ============================================================
-#define MCP_PIN_A0      0
-#define MCP_PIN_A1      1
-#define MCP_PIN_A2      2
-#define MCP_PIN_A3      3
-#define MCP_PIN_A4      4
-#define MCP_PIN_A5      5
-#define MCP_PIN_A6      6
-#define MCP_PIN_A7      7
-
-#define MCP_PIN_B0      8
-#define MCP_PIN_B1      9
-#define MCP_PIN_B2      10
-#define MCP_PIN_B3      11
-#define MCP_PIN_B4      12
-#define MCP_PIN_B5      13
-#define MCP_PIN_B6      14
-#define MCP_PIN_B7      15
-
-#define LED_0           MCP_PIN_A0
-#define LED_1           MCP_PIN_A1
-#define LED_2           MCP_PIN_A2
-#define DIP_SWITCH_0    MCP_PIN_A3
-#define DIP_SWITCH_1    MCP_PIN_A4
-// A5 - A7 is defined with DRV pins.
-
-#define INA_ALERT       MCP_PIN_B0
-#define SD_CARD_DETECT  MCP_PIN_B1
-// B2 - B4 is defined with DRV pins.
-#define ETHERNET_RESET_0 MCP_PIN_B5
-#define ETHERNET_RESET_1 MCP_PIN_B6
-#define TEMP_OS          MCP_PIN_B7
-
-// ============================================================
 // SPI Buses
 // ============================================================
 #define SPI0_CLK    GPIO_NUM_14
@@ -59,7 +24,6 @@
 // ============================================================
 #define DRV8323_CS      GPIO_NUM_48
 #define AS5047P_CS      GPIO_NUM_13
-#define SD_CARD_CS      GPIO_NUM_10
 #define W5500_0_CS      GPIO_NUM_17
 #define W5500_1_CS      GPIO_NUM_15
 
@@ -70,22 +34,24 @@
 #define W5500_1_INT     GPIO_NUM_7
 
 // ============================================================
-// DRV8323 3-Phase PWM Inputs (3x PWM mode, low-side auto-generated)
+// DRV8323 3-Phase PWM Inputs (3x PWM mode, low-side GPIO)
 // ============================================================
-#define DRV8323_INHA    GPIO_NUM_42
-#define DRV8323_INHB    GPIO_NUM_41
-#define DRV8323_INHC    GPIO_NUM_40
+#define DRV8323_INHA    GPIO_NUM_39
+#define DRV8323_INHB    GPIO_NUM_40
+#define DRV8323_INHC    GPIO_NUM_41
 
-#define DRV8323_INLA    MCP_PIN_A7
-#define DRV8323_INLB    MCP_PIN_A6
-#define DRV8323_INLC    MCP_PIN_A5
+#define DRV8323_INL     GPIO_NUM_42
 
 // ============================================================
-// DRV8323 Control Pins (on MCP23017 Port B)
+// DRV8323 Control Pins
 // ============================================================
-#define DRV8323_nFAULT  MCP_PIN_B2
-#define DRV8323_ENABLE  MCP_PIN_B3
-#define DRV8323_CAL     MCP_PIN_B4
+#define DRV8323_nFAULT  GPIO_NUM_3
+#define DRV8323_ENABLE  GPIO_NUM_38
+
+// ============================================================
+// Brake chopper PWM
+// ============================================================
+#define BRAKE_CHOPPER_PWM GPIO_NUM_1
 
 // ============================================================
 // ADC Phase Current Sensing
@@ -94,8 +60,9 @@
 #define ADC_CUR_B       GPIO_NUM_5
 #define ADC_CUR_C       GPIO_NUM_4
 
+
 // ============================================================
-// Interrupt Pins
+// External pins
 // ============================================================
-#define LSM6DSO_INT1    GPIO_NUM_38
-#define LSM6DSO_INT2    GPIO_NUM_39
+
+#define CS_EXTERNAL     GPIO_NUM_10
