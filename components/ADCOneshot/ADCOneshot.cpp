@@ -82,7 +82,7 @@ esp_err_t ADCOneshot::read_raw(Channel ch, int &raw) {
     return adc_oneshot_read(_adc_handle, _channels[ch], &raw);
 }
 
-esp_err_t ADCOneshot::read_voltage(Channel ch, float &voltage_mv) {
+esp_err_t ADCOneshot::read_voltage(Channel ch, int &voltage_mv) {
     if (!_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -95,11 +95,11 @@ esp_err_t ADCOneshot::read_voltage(Channel ch, float &voltage_mv) {
         int cali_result;
         ret = adc_cali_raw_to_voltage(_cali_handle, raw, &cali_result);
         if (ret == ESP_OK) {
-            voltage_mv = (float)cali_result;
+            voltage_mv = cali_result;
         }
         return ret;
     }
-    voltage_mv = (float)raw;
+    voltage_mv = raw;
     return ESP_OK;
 }
 

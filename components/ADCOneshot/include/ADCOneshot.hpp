@@ -22,7 +22,7 @@ public:
 
     esp_err_t init(float shunt_ohm = 0, float csa_gain = 0, float vref = 0);
     esp_err_t read_raw(Channel ch, int &raw);
-    esp_err_t read_voltage(Channel ch, float &voltage_mv);
+    esp_err_t read_voltage(Channel ch, int &voltage_mv);
     esp_err_t read_current_amps(Channel ch, float &current);
     esp_err_t calibrate_raw(int raw, float &voltage_mv) const;
     esp_err_t raw_to_current(int raw, float &current) const;
