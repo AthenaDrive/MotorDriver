@@ -110,12 +110,12 @@ esp_err_t ADCOneshot::read_current_amps(Channel ch, float &current) {
     if (_shunt_ohm == 0 || _csa_gain == 0) {
         return ESP_ERR_INVALID_STATE;
     }
-    float voltage_mv;
+    int voltage_mv;
     esp_err_t ret = read_voltage(ch, voltage_mv);
     if (ret != ESP_OK) {
         return ret;
     }
-    current = ((voltage_mv / 1000.0f) - _vref) / (_shunt_ohm * _csa_gain);
+    current = (((float)voltage_mv / 1000.0f) - _vref) / (_shunt_ohm * _csa_gain);
     return ESP_OK;
 }
 
