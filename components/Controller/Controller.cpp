@@ -40,8 +40,8 @@ void Controller::_parkTransform(const float sinElectricalPos, const float cosEle
 }
 
 void Controller::_PILoop(const float iqRef, const float motorVelocity) {
-	// TODO: test sign.
-	float vdPI = _dReg.update(_parkId);
+	float idRef = 0.0f;
+	float vdPI = _dReg.update(idRef - _parkId);
 	float vqPI = _qReg.update(iqRef - _parkIq);
 
 	float motor_l = 0.001f; // TODO! Find motor L
