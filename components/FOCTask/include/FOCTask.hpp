@@ -47,6 +47,23 @@ private:
 
     int64_t _prevTime;
 
+    int CURRENT_BASELINE_LOOPS = 10000;
+    int CURRENT_BASELINE_SETTLE = 5000;
+
+    int64_t sumPhaseOffsetA = 0;
+    int64_t sumPhaseOffsetB = 0;
+    int64_t sumPhaseOffsetC = 0;
+
+    int numCurrentReadings = 0;
+
+    int phaseOffsetA;
+    int phaseOffsetB;
+    int phaseOffsetC;
+
+    LowpassFilter lowpassCurrentA{0.1};
+    LowpassFilter lowpassCurrentB{0.1};
+    LowpassFilter lowpassCurrentC{0.1};
+
     // --- Rotor / encoder electrical offset calibration ---
     //
     // Hold a known stator voltage vector, let the rotor lock onto it, then
@@ -55,6 +72,7 @@ private:
     enum class AlignPhase : uint8_t {
         SETTLE,   // Rotor is swinging into alignment, do not measure yet.
         MEASURE,  // Rotor should be locked, accumulate angle samples.
+        CURRENT,
         DONE,
     };
 

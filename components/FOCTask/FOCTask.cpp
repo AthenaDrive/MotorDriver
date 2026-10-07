@@ -55,7 +55,7 @@ void FOCTask::begin() {
     esp_timer_create(&timerArgs, &focTimer);
     // TODO!
     // Currently slower than 50us, just for debug. Also need optimizing, current peaks at 450+ us.
-    esp_timer_start_periodic(focTimer, 600);
+    esp_timer_start_periodic(focTimer, 1000);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -150,7 +150,7 @@ void FOCTask::update() {
                 _alignSamples = 0;
                 _alignMaxStep = 0.0f;
             }
-        } else {
+        } else if (_alignPhase == AlignPhase::MEASURE) {
             if (_alignSamples == 0) {
                 _alignPrevAngle = angle;
             } else {
@@ -197,8 +197,39 @@ void FOCTask::update() {
                        resultant,
                        _alignMaxStep);
 
-                _alignPhase = AlignPhase::DONE;
+                _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
+                _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
+                _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+
+                _alignPhase = AlignPhase::CURRENT;
             }
+        } else if (_alignPhase == AlignPhase::CURRENT) {
+            CURRENT_BASELINE_LOOPS -= 1;
+            if (CURRENT_BASELINE_LOOPS < CURRENT_BASELINE_SETTLE) {
+                int mvPhaseA, mvPhaseB, mvPhaseC;
+                _adc.read_voltage(ADCOneshot::CHANNEL_A, mvPhaseA);
+                _adc.read_voltage(ADCOneshot::CHANNEL_B, mvPhaseB);
+                _adc.read_voltage(ADCOneshot::CHANNEL_C, mvPhaseC);
+
+                sumPhaseOffsetA += mvPhaseA;
+                sumPhaseOffsetB += mvPhaseB;
+                sumPhaseOffsetC += mvPhaseC;
+                numCurrentReadings++;
+            }
+
+            if (CURRENT_BASELINE_LOOPS == 0) {
+                _alignPhase = AlignPhase::DONE;
+
+                phaseOffsetA = sumPhaseOffsetA / numCurrentReadings;
+                phaseOffsetB = sumPhaseOffsetB / numCurrentReadings;
+                phaseOffsetC = sumPhaseOffsetC / numCurrentReadings;
+                // phaseOffsetB = static_cast<int>(static_cast<double>(sumPhaseOffsetA) / static_cast<double>(numCurrentReadings));
+
+                printf("Finished current thingy. Offsets: %i, %i, %i\n", phaseOffsetA, phaseOffsetB, phaseOffsetC);
+            }
+
+        } else {
+            // Something wrong?
         }
 
         return;
@@ -209,13 +240,19 @@ void FOCTask::update() {
 
     float iqRef = globalVariableManager.getTorqueSetpoint();
 
-    float mvPhaseA, mvPhaseB, mvPhaseC;
+    int mvPhaseA, mvPhaseB, mvPhaseC;
     _adc.read_voltage(ADCOneshot::CHANNEL_A, mvPhaseA);
     _adc.read_voltage(ADCOneshot::CHANNEL_B, mvPhaseB);
     _adc.read_voltage(ADCOneshot::CHANNEL_C, mvPhaseC);
 
+    // Gain: 50V/V
+    // Shunt: 1mOhm
+    float currentA = lowpassCurrentA.update(static_cast<float>(mvPhaseA - phaseOffsetA) / 50.0f);
+    float currentB = lowpassCurrentB.update(static_cast<float>(mvPhaseB - phaseOffsetB) / 50.0f);
+    float currentC = lowpassCurrentC.update(static_cast<float>(mvPhaseC - phaseOffsetC) / 50.0f);
+
     // TODO: Need to actually use velocity when its not horribly noisy.
-    _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, 0.0f, 0.0f);
+    _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, -currentA, -currentB);
 
     float maxVal = 30.0f;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
@@ -230,6 +267,13 @@ void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
 
+    globalVariableManager.setIa(currentA);
+    globalVariableManager.setIb(currentB);
+    globalVariableManager.setIc(currentC);
+
+    // globalVariableManager.setIa(static_cast<float>(mvPhaseA - phaseOffsetA));
+    // globalVariableManager.setIb(static_cast<float>(mvPhaseB - phaseOffsetB));
+    // globalVariableManager.setIc(static_cast<float>(mvPhaseC - phaseOffsetC));
 
     int64_t t1 = esp_timer_get_time();
     // TODO: Add small lowpass maybe? Or rename variable
