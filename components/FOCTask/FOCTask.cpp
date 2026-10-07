@@ -251,8 +251,8 @@ void FOCTask::update() {
     float currentB = lowpassCurrentB.update(static_cast<float>(mvPhaseB - phaseOffsetB) / 50.0f);
     float currentC = lowpassCurrentC.update(static_cast<float>(mvPhaseC - phaseOffsetC) / 50.0f);
 
-    // TODO: Need to actually use velocity when its not horribly noisy.
-    _out = _controller.update(iqRef, elPos + _elPosOffset, 0.0f, -currentA, -currentB);
+    float omegaE = velocity * numPolePairs;
+    _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, currentA, currentB);
 
     float maxVal = 30.0f;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
