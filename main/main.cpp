@@ -116,7 +116,7 @@ extern "C" void app_main(void) {
             ina.read_power(power) == ESP_OK) {
                 // printf("INA238: %.3fV %.3fmV %.3fA %.3fW\n", vbus, vshunt, current, power);
                 globalVariableManager.setBusVoltage(vbus);
-                globalVariableManager.setBusCurrent(current);
+                globalVariableManager.setBusCurrent(-current); // Negative because i have switched up the wires.. stupid.
             }
 
         if (lsm.read_accel(ax, ay, az) == ESP_OK &&
