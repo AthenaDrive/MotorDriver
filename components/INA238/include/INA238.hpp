@@ -37,9 +37,9 @@ public:
         MODE_CONT_ALL    = 0xF000,
         MODE_CONT_VBUS   = 0x9000,
         MODE_CONT_VSHUNT = 0xA000,
-        VBUSCT_1052US   = 0x0A00,
-        VSHCT_1052US    = 0x0280,
-        VTCT_1052US     = 0x0028,
+        VBUSCT_1052US   = 0x0A00,   // bits 11:9, code 5 = 1052 us
+        VSHCT_1052US    = 0x0140,   // bits  8:6, code 5 = 1052 us
+        VTCT_1052US     = 0x0028,   // bits  5:3, code 5 = 1052 us
         AVG_1            = 0x0000,
         AVG_128          = 0x0004,
         AVG_256          = 0x0005,
@@ -55,6 +55,8 @@ public:
     esp_err_t set_adc_config(uint16_t config);
     esp_err_t calibrate(float shunt_resistance, float max_current_a);
 
+    // Output units: shunt voltage in millivolts, bus voltage in volts,
+    // current in amps, power in watts, temperature in degrees Celsius.
     esp_err_t read_shunt_voltage(float &voltage_mv);
     esp_err_t read_bus_voltage(float &voltage_v);
     esp_err_t read_temperature(float &temp_c);
@@ -69,11 +71,13 @@ private:
     esp_err_t _read_reg16(Register reg, uint16_t &value);
     esp_err_t _write_reg16(Register reg, uint16_t value);
     esp_err_t _read_reg24(Register reg, uint32_t &value);
+    esp_err_t _program_shunt_cal(float current_lsb, float shunt_resistance, bool range_40mv);
 
     I2CBase &_i2c;
     uint8_t _addr;
     float _current_lsb;
     float _power_lsb;
+    float _shunt_resistance;
     bool _range_40mv;
     bool _initialized;
 };
