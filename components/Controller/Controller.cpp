@@ -28,7 +28,9 @@ Output Controller::update(
 void Controller::_clarkeTransform(const float Ia, const float Ib) {
 	_clarkeIa = Ia;
 	// Bitshift is faster?
-	_clarkeIb = (Ia + 2 * Ib) * INV_SQRT_3;
+	// _betaSign swaps the roles of phase B and C, so a reversed motor phase
+	// sequence still produces the same logical alpha/beta currents.
+	_clarkeIb = _betaSign * (Ia + 2 * Ib) * INV_SQRT_3;
 }
 
 void Controller::_parkTransform(const float sinElectricalPos, const float cosElectricalPos) {
@@ -62,8 +64,11 @@ void Controller::_clarkeInverse() {
 	_output.phaseA = _clarkeVa;
 
 	// Bitshift faster? Constexpr sqrt(3) / 2?
+	// Mirror beta when the motor phase sequence is reversed. This swaps the
+	// physical B and C outputs.
+	const float vb = _betaSign * _clarkeVb;
 	const float term0 = - _clarkeVa * 0.5f;
-	const float term1 = _clarkeVb * SQRT_3_DIV_2;
+	const float term1 = vb * SQRT_3_DIV_2;
 	_output.phaseB = term0 + term1;
 	_output.phaseC = term0 - term1;
 }

@@ -1,5 +1,7 @@
 
 #pragma once
+#include <cstdint>
+
 #include "PI.hpp"
 
 struct ControllerParams {
@@ -21,10 +23,18 @@ class Controller {
 public:
 	Controller(const ControllerParams &params);
 	Output update(float iqRef, float electricalPosition, float motorVelocity, float Ia, float Ib);
+
+	// Mirror the beta axis. This is the software equivalent of swapping two
+	// motor phase wires and makes the phase order irrelevant.
+	void setPhaseOrder(bool reversed) { _betaSign = reversed ? -1 : 1; }
+	bool isPhaseOrderReversed() const { return _betaSign < 0; }
+
 private:
 	Output _output{};
 	PI_Reg _dReg;
 	PI_Reg _qReg;
+
+	int8_t _betaSign = 1;
 
 	float _clarkeIa = 0.0f;
 	float _clarkeIb = 0.0f;
