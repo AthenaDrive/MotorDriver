@@ -103,3 +103,4 @@ uint32_t, tcpCommandDebugUint1, 0
 float,       PI, 3.141592653589793f
 float,   TWO_PI, 6.283185307179586f
 float, PI_DIV_2, 1.570796326794897f
+float, SQRT_3_DIV_2, 0.8660254037844386f

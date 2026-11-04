@@ -15,7 +15,8 @@ public:
 
     static constexpr float PI = 3.141592653589793f;
     static constexpr float TWO_PI = 6.283185307179586f;
-    static constexpr float PI_DIV_2 = 1.570796326794897;
+    static constexpr float PI_DIV_2 = 1.570796326794897f;
+    static constexpr float SQRT_3_DIV_2 = 0.8660254037844386;
 
     uint32_t getUdpAsPeripheralHeader();
     void setUdpAsPeripheralHeader(uint32_t value);
@@ -305,7 +306,7 @@ private:
     uint32_t _tcpFromControllerBufferSize{0};
     std::mutex _tcpFromControllerBufferMutex;
 
-    std::atomic_uint32_t _numPolePairs{20};
+    std::atomic_uint32_t _numPolePairs{7};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
     std::atomic_uint32_t _angle{0};
