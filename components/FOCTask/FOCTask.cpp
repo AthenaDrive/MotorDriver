@@ -14,6 +14,12 @@ FOCTask::FOCTask(FOCTaskConfig &config)
 }
 
 void FOCTask::begin() {
+    if (_config.cPhaseOrderMode != PhaseOrderMode::AUTO) {
+        const bool reversed = (_config.cPhaseOrderMode == PhaseOrderMode::REVERSED);
+        _controller.setPhaseOrder(reversed);
+        printf("FOC: phase order forced to %s.\n", reversed ? "REVERSED" : "NORMAL");
+    }
+
     // Keep CS deasserted while the bus and the other devices are set up. The
     // DRV8323 itself is initialized later, after the bus voltage is valid.
     gpio_set_direction(_config.cDRV8323_CS, GPIO_MODE_OUTPUT);
@@ -76,15 +82,23 @@ void FOCTask::initializeDriver() {
     gpio_set_level(_config.cDRV8323_INL, 1);
 }
 
+void FOCTask::applyVoltageVector(float electricalAngle) {
+    // Inverse Clarke for a stator voltage vector of magnitude ALIGN_VOLTAGE at
+    // the given electrical angle. At 0 degrees this is (d, -d/2, -d/2), i.e.
+    // alpha = d, beta = 0. At +90 degrees it is (0, +sqrt(3)/2*d, -sqrt(3)/2*d).
+    const float alpha = ALIGN_VOLTAGE * std::cos(electricalAngle);
+    const float beta = ALIGN_VOLTAGE * std::sin(electricalAngle);
+
+    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f + alpha);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f - 0.5f * alpha + SQRT_3_DIV_2 * beta);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f - 0.5f * alpha - SQRT_3_DIV_2 * beta);
+}
+
 void FOCTask::applyAlignmentVoltage() {
     // Hold a known stator field so the rotor locks to a defined electrical
     // angle before we try to commutate against the encoder. 50 is neutral for
     // this driver (see the duty mapping at the bottom of update()).
-    // Offsets of (+d, -d/2, -d/2) give alpha = d, beta = 0, so this vector is
-    // at exactly 0 electrical degrees in the frame Controller transforms into.
-    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f + ALIGN_VOLTAGE);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f - ALIGN_VOLTAGE * 0.5f);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f - ALIGN_VOLTAGE * 0.5f);
+    applyVoltageVector(0.0f);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -265,6 +279,79 @@ void FOCTask::update() {
                        _elPosOffset,
                        resultant,
                        _alignMaxStep);
+
+                _alignLockedAngle = lockedAngle;
+
+                if (_config.cPhaseOrderMode == PhaseOrderMode::AUTO) {
+                    // Keep the 0-degree field applied and slowly rotate it to
+                    // +90 electrical degrees. The direction the rotor follows
+                    // tells us whether the motor phases and encoder count the
+                    // same way. The 0-degree vector has B == C, so this does
+                    // not invalidate the offset we just measured.
+                    _alignLoops = 0;
+                    _alignPhase = AlignPhase::DIRECTION_RAMP;
+                } else {
+                    _controller.setPhaseOrder(_config.cPhaseOrderMode == PhaseOrderMode::REVERSED);
+                    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
+                    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
+                    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+                    _alignPhase = AlignPhase::CURRENT;
+                }
+            }
+        } else if (_alignPhase == AlignPhase::DIRECTION_RAMP) {
+            float progress = static_cast<float>(_alignLoops) /
+                             static_cast<float>(DIRECTION_RAMP_LOOPS);
+            if (progress > 1.0f) {
+                progress = 1.0f;
+            }
+            applyVoltageVector(progress * GlobalVariableManager::PI_DIV_2);
+
+            if (progress >= 1.0f) {
+                _alignLoops = 0;
+                _alignPhase = AlignPhase::DIRECTION_SETTLE;
+            }
+        } else if (_alignPhase == AlignPhase::DIRECTION_SETTLE) {
+            // The +90-degree vector is still applied; wait for the rotor to
+            // finish swinging before measuring.
+            if (_alignLoops >= DIRECTION_SETTLE_LOOPS) {
+                _alignSinSum = 0.0f;
+                _alignCosSum = 0.0f;
+                _alignSamples = 0;
+                _alignLoops = 0;
+                _alignPhase = AlignPhase::DIRECTION_MEASURE;
+            }
+        } else if (_alignPhase == AlignPhase::DIRECTION_MEASURE) {
+            _alignSinSum += std::sin(angle);
+            _alignCosSum += std::cos(angle);
+            _alignSamples += 1;
+
+            if (_alignLoops >= DIRECTION_MEASURE_LOOPS) {
+                const float angle90 = std::atan2(_alignSinSum, _alignCosSum);
+                const float delta = wrapAngleSigned(angle90 - _alignLockedAngle);
+                const float resultant = std::sqrt(_alignSinSum * _alignSinSum +
+                                                  _alignCosSum * _alignCosSum) /
+                                        static_cast<float>(_alignSamples);
+
+                if (resultant < ALIGN_MIN_RESULTANT) {
+                    printf("Direction: rotor did not settle (resultant %.4f), "
+                           "direction result may be unreliable.\n", resultant);
+                }
+
+                const float deltaElectrical = delta * numPolePairs;
+                if (std::fabs(deltaElectrical) < DIRECTION_MIN_ELEC_DELTA) {
+                    printf("Direction: rotor barely moved (%.4f rad electrical). "
+                           "Set cPhaseOrderMode manually if the motor still pulls "
+                           "to a fixed angle.\n", std::fabs(deltaElectrical));
+                }
+
+                _reversePhaseSequence = (delta < 0.0f);
+                _controller.setPhaseOrder(_reversePhaseSequence);
+
+                printf("Direction: moved %.4f rad mechanical (%.4f rad electrical), "
+                       "phase order %s.\n",
+                       delta,
+                       deltaElectrical,
+                       _reversePhaseSequence ? "REVERSED" : "NORMAL");
 
                 _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
                 _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);

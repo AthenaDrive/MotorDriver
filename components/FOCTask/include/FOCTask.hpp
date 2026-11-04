@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <errno.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,6 +15,12 @@
 
 #include "AS5047P.hpp"
 #include "DRV8323.hpp"
+
+enum class PhaseOrderMode : uint8_t {
+    AUTO,      // Detect the phase order during startup.
+    NORMAL,    // Force A-B-C phase order.
+    REVERSED,  // Force A-C-B phase order (software wire swap).
+};
 
 struct FOCTaskConfig
 {
@@ -33,6 +40,10 @@ struct FOCTaskConfig
     // Extra time the bus must stay above cMinBusVoltage before the driver is
     // enabled, so the supply has finished settling.
     uint32_t cStartupSettleMs = 500;
+
+    // AUTO runs a short direction test after the alignment lock. NORMAL and
+    // REVERSED skip the test and force the corresponding phase order.
+    PhaseOrderMode cPhaseOrderMode = PhaseOrderMode::AUTO;
 };
 
 
@@ -87,6 +98,9 @@ private:
         START_ONE_PHASE, // Apply the alignment field.
         SETTLE,          // Rotor is swinging into alignment, do not measure yet.
         MEASURE,         // Rotor should be locked, accumulate angle samples.
+        DIRECTION_RAMP,    // Rotate the field +90 electrical.
+        DIRECTION_SETTLE,  // Let the rotor finish moving.
+        DIRECTION_MEASURE, // Measure which way the rotor moved.
         CURRENT,         // Measure the zero-current ADC offsets.
         DONE,
     };
@@ -113,6 +127,18 @@ private:
     // alignment field. 0.0 = uniformly spread, 1.0 = perfectly stationary.
     static constexpr float ALIGN_MIN_RESULTANT = 0.9f;
 
+    // Direction check: ramp the alignment field from 0 to +90 electrical
+    // degrees, let the rotor settle, then measure which way it moved. A slow
+    // ramp makes the rotor follow the field instead of relying on a single
+    // nudge that cogging could swallow.
+    static constexpr uint32_t DIRECTION_RAMP_LOOPS = 1000;
+    static constexpr uint32_t DIRECTION_SETTLE_LOOPS = 1000;
+    static constexpr uint32_t DIRECTION_MEASURE_LOOPS = 500;
+
+    // If the rotor moved less than this (electrical radians) during the
+    // direction check the result is not trustworthy.
+    static constexpr float DIRECTION_MIN_ELEC_DELTA = 0.05f;
+
     AlignPhase _alignPhase = AlignPhase::NO_VOLTAGE;
     uint32_t _alignLoops = 0;
 
@@ -122,6 +148,7 @@ private:
 
     void initializeDriver();
     void applyAlignmentVoltage();
+    void applyVoltageVector(float electricalAngle);
 
     // Circular mean accumulators. Summing sin and cos keeps the result correct
     // across the +-pi wrap, where a plain average of angles collapses toward
@@ -137,6 +164,13 @@ private:
 
     // Electrical zero point in radians, added to (angle * numPolePairs).
     float _elPosOffset = 0.0f;
+
+    // Mechanical angle where the rotor locked during the 0-degree alignment.
+    // Used as the reference for the direction check.
+    float _alignLockedAngle = 0.0f;
+
+    // True when the motor phase sequence is reversed relative to the encoder.
+    bool _reversePhaseSequence = false;
 
     static void taskEntry(void *pvParameters);
 };
