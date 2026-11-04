@@ -90,8 +90,8 @@ void FOCTask::applyVoltageVector(float electricalAngle) {
     const float beta = ALIGN_VOLTAGE * std::sin(electricalAngle);
 
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f + alpha);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f - 0.5f * alpha + SQRT_3_DIV_2 * beta);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f - 0.5f * alpha - SQRT_3_DIV_2 * beta);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f - 0.5f * alpha + GlobalVariableManager::SQRT_3_DIV_2 * beta);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f - 0.5f * alpha - GlobalVariableManager::SQRT_3_DIV_2 * beta);
 }
 
 void FOCTask::applyAlignmentVoltage() {
