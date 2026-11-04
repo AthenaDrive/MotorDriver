@@ -35,13 +35,6 @@ extern "C" void app_main(void) {
     ina.calibrate(INA238_SHUNT_OHM, INA238_MAX_CURRENT_A);
     ESP_ERROR_CHECK(lsm.init());
 
-    gpio_set_direction(DRV8323_INL, GPIO_MODE_OUTPUT);
-    gpio_set_level(DRV8323_INL, 0);
-
-    gpio_set_direction(DRV8323_nFAULT, GPIO_MODE_INPUT);
-    gpio_set_direction(DRV8323_ENABLE, GPIO_MODE_OUTPUT);
-    gpio_set_level(DRV8323_ENABLE, 1);
-
     gpio_install_isr_service(0);
     // Both SdCard (sdspi_host) and W5500 (esp_eth) use SPI3_HOST directly,
     // so initialize it manually here rather than through SPIBase.
@@ -57,6 +50,24 @@ extern "C" void app_main(void) {
     bus1_cfg.data7_io_num = -1;
     bus1_cfg.max_transfer_sz = 4096;
     ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &bus1_cfg, SPI_DMA_CH_AUTO));
+
+    // Start the FOC task first so it can keep reading the encoder even when
+    // the bus is unpowered. Its startup state machine waits for the bus and
+    // only then initializes and enables the DRV8323.
+    FOCTaskConfig focConfig{
+        .cDRV8323_CS = DRV8323_CS,
+        .cAS5047P_CS = AS5047P_CS,
+        .cSPI0_CLK = SPI0_CLK,
+        .cSPI0_PICO = SPI0_PICO,
+        .cSPI0_POCI = SPI0_POCI,
+        .cDRV8323_ENABLE = DRV8323_ENABLE,
+        .cDRV8323_INL = DRV8323_INL,
+        .cDRV8323_nFAULT = DRV8323_nFAULT,
+        .cMinBusVoltage = 9.0f,
+        .cStartupSettleMs = 500,
+    };
+    FOCTask focTask{focConfig};
+    focTask.begin();
 
     EthernetTaskConfig ethConfig{
         .cW5500_0_CS = W5500_0_CS,
@@ -74,29 +85,6 @@ extern "C" void app_main(void) {
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();
 
-    printf("Wating for high voltage.\n");
-    float startupVoltage = 0.0f;
-    while (startupVoltage < 9.0) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        printf(".");
-        ina.read_bus_voltage(startupVoltage);
-    }
-    printf("\nPowered up!\n");
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    gpio_set_level(DRV8323_INL, 1);
-
-    FOCTaskConfig focConfig{
-        .cDRV8323_CS = DRV8323_CS,
-        .cAS5047P_CS = AS5047P_CS,
-        .cSPI0_CLK = SPI0_CLK,
-        .cSPI0_PICO = SPI0_PICO,
-        .cSPI0_POCI = SPI0_POCI,
-    };
-    FOCTask focTask{focConfig};
-    focTask.begin();
-
-    vTaskDelay(pdMS_TO_TICKS(500));
     printf("All sensors, SD card, Ethernet, PWM, and ADC initialized.\n");
 
     float temp, vbus, vshunt, current, power;
@@ -110,12 +98,16 @@ extern "C" void app_main(void) {
             globalVariableManager.setTemperature(temp);
         }
 
-        if (ina.read_bus_voltage(vbus) == ESP_OK &&
-            ina.read_shunt_voltage(vshunt) == ESP_OK &&
+        // Publish the bus voltage on its own so the FOC startup state machine
+        // is not blocked by a failure in one of the other INA238 channels.
+        if (ina.read_bus_voltage(vbus) == ESP_OK) {
+            globalVariableManager.setBusVoltage(vbus);
+        }
+
+        if (ina.read_shunt_voltage(vshunt) == ESP_OK &&
             ina.read_current(current) == ESP_OK &&
             ina.read_power(power) == ESP_OK) {
                 // printf("INA238: %.3fV %.3fmV %.3fA %.3fW\n", vbus, vshunt, current, power);
-                globalVariableManager.setBusVoltage(vbus);
                 globalVariableManager.setBusCurrent(-current); // Negative because i have switched up the wires.. stupid.
             }
 

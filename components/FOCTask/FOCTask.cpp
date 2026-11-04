@@ -14,32 +14,32 @@ FOCTask::FOCTask(FOCTaskConfig &config)
 }
 
 void FOCTask::begin() {
-    gpio_set_level(_config.cDRV8323_CS, 1);
+    // Keep CS deasserted while the bus and the other devices are set up. The
+    // DRV8323 itself is initialized later, after the bus voltage is valid.
     gpio_set_direction(_config.cDRV8323_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(_config.cDRV8323_CS, 1);
+
+    gpio_config_t drvControl = {};
+    drvControl.pin_bit_mask = (1ULL << _config.cDRV8323_ENABLE) |
+                              (1ULL << _config.cDRV8323_INL);
+    drvControl.mode = GPIO_MODE_OUTPUT;
+    drvControl.pull_up_en = GPIO_PULLUP_DISABLE;
+    drvControl.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    drvControl.intr_type = GPIO_INTR_DISABLE;
+    ESP_ERROR_CHECK(gpio_config(&drvControl));
+
+    gpio_set_level(_config.cDRV8323_ENABLE, 1);
+    gpio_set_level(_config.cDRV8323_INL, 0);
+    gpio_set_direction(_config.cDRV8323_nFAULT, GPIO_MODE_INPUT);
 
     ESP_ERROR_CHECK(_pwm.init(30000, 40000000, nullptr, nullptr));
+    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+
     ESP_ERROR_CHECK(_spi.init());
     ESP_ERROR_CHECK(_encoder.init());
-    ESP_ERROR_CHECK(_drv.init());
-    _drv.set_3x_pwm_mode();
-
-    uint16_t drvReg;
-    for (int i = 0; i < 8; i++) {
-        auto err = _drv.read_register(i, drvReg);
-        if (err != ESP_OK) {
-            printf("Error when reading register %i.\n", i);
-        }
-        printf("Register %i: %i\n", i, drvReg);
-    }
-
-    // Hold a known stator field so the rotor locks to a defined electrical
-    // angle before we try to commutate against the encoder. 50 is neutral for
-    // this driver (see the duty mapping at the bottom of update()).
-    // Offsets of (+d, -d/2, -d/2) give alpha = d, beta = 0, so this vector is
-    // at exactly 0 electrical degrees in the frame Controller transforms into.
-    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f + ALIGN_VOLTAGE);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f - ALIGN_VOLTAGE * 0.5f);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f - ALIGN_VOLTAGE * 0.5f);
+    ESP_ERROR_CHECK(_adc.init(0.0035f, 20.0f, 1.65f));
 
     esp_timer_handle_t focTimer;
     esp_timer_create_args_t timerArgs = {
@@ -50,12 +50,41 @@ void FOCTask::begin() {
         .skip_unhandled_events = true, // Never use light sleep, but whatever.
     };
 
-    _adc.init(0.0035f, 20.0f, 1.65f);
-
     esp_timer_create(&timerArgs, &focTimer);
     // TODO!
     // Currently slower than 50us, just for debug. Also need optimizing, current peaks at 450+ us.
     esp_timer_start_periodic(focTimer, 1000);
+}
+
+void FOCTask::initializeDriver() {
+    ESP_ERROR_CHECK(_drv.init());
+
+    esp_err_t err = _drv.set_3x_pwm_mode();
+    if (err != ESP_OK) {
+        printf("FOC: failed to set DRV8323 3x PWM mode (%s).\n", esp_err_to_name(err));
+    }
+
+    uint16_t drvReg = 0;
+    for (int i = 0; i < 8; i++) {
+        auto readErr = _drv.read_register(i, drvReg);
+        if (readErr != ESP_OK) {
+            printf("Error when reading register %i.\n", i);
+        }
+        printf("Register %i: %i\n", i, drvReg);
+    }
+
+    gpio_set_level(_config.cDRV8323_INL, 1);
+}
+
+void FOCTask::applyAlignmentVoltage() {
+    // Hold a known stator field so the rotor locks to a defined electrical
+    // angle before we try to commutate against the encoder. 50 is neutral for
+    // this driver (see the duty mapping at the bottom of update()).
+    // Offsets of (+d, -d/2, -d/2) give alpha = d, beta = 0, so this vector is
+    // at exactly 0 electrical degrees in the frame Controller transforms into.
+    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f + ALIGN_VOLTAGE);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f - ALIGN_VOLTAGE * 0.5f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f - ALIGN_VOLTAGE * 0.5f);
 }
 
 float constrain(float val, float minV, float maxV) {
@@ -126,10 +155,11 @@ void FOCTask::update() {
 
     // --- Electrical offset calibration -------------------------------------
     //
-    // begin() applies a stator voltage vector at exactly 0 electrical degrees
-    // (duty offsets of +d, -d/2, -d/2 map to alpha = d, beta = 0). When the
-    // rotor has locked onto that vector its d-axis is therefore at 0 electrical
-    // degrees, so the angle we feed the Controller must read 0 at that moment:
+    // applyAlignmentVoltage() applies a stator voltage vector at exactly 0
+    // electrical degrees (duty offsets of +d, -d/2, -d/2 map to alpha = d,
+    // beta = 0). When the rotor has locked onto that vector its d-axis is
+    // therefore at 0 electrical degrees, so the angle we feed the Controller
+    // must read 0 at that moment:
     //
     //     (angle * numPolePairs) + _elPosOffset == 0
     //
@@ -139,6 +169,45 @@ void FOCTask::update() {
     // because (angle * numPolePairs) is taken modulo 2*pi further down and the
     // rotor simply walks the same way the electrical angle does.
     if (_alignPhase != AlignPhase::DONE) {
+        if (_alignPhase == AlignPhase::NO_VOLTAGE) {
+            if (globalVariableManager.getBusVoltage() < _config.cMinBusVoltage) {
+                return;
+            }
+
+            printf("FOC: bus voltage reached %.1f V, settling for %u ms.\n",
+                   _config.cMinBusVoltage,
+                   (unsigned int)_config.cStartupSettleMs);
+            _voltageSettleStartUs = esp_timer_get_time();
+            _alignPhase = AlignPhase::VOLTAGE_SETTLE;
+        }
+
+        if (_alignPhase == AlignPhase::VOLTAGE_SETTLE) {
+            if (globalVariableManager.getBusVoltage() < _config.cMinBusVoltage) {
+                _alignPhase = AlignPhase::NO_VOLTAGE;
+                return;
+            }
+
+            const int64_t settleUs = static_cast<int64_t>(_config.cStartupSettleMs) * 1000;
+            if (esp_timer_get_time() - _voltageSettleStartUs < settleUs) {
+                return;
+            }
+
+            printf("FOC: bus voltage stable, starting DRV8323.\n");
+            _alignPhase = AlignPhase::INIT_DRV;
+        }
+
+        if (_alignPhase == AlignPhase::INIT_DRV) {
+            initializeDriver();
+            _alignPhase = AlignPhase::START_ONE_PHASE;
+        }
+
+        if (_alignPhase == AlignPhase::START_ONE_PHASE) {
+            applyAlignmentVoltage();
+            _alignLoops = 0;
+            _alignPhase = AlignPhase::SETTLE;
+            return;
+        }
+
         _alignLoops += 1;
 
         if (_alignPhase == AlignPhase::SETTLE) {

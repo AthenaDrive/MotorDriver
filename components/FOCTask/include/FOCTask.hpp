@@ -22,6 +22,17 @@ struct FOCTaskConfig
     gpio_num_t cSPI0_CLK;
     gpio_num_t cSPI0_PICO;
     gpio_num_t cSPI0_POCI;
+    gpio_num_t cDRV8323_ENABLE;
+    gpio_num_t cDRV8323_INL;
+    gpio_num_t cDRV8323_nFAULT;
+
+    // The DRV8323 cannot start before the bus has reached its minimum
+    // operating voltage. Keep a margin above the 6 V datasheet minimum.
+    float cMinBusVoltage = 9.0f;
+
+    // Extra time the bus must stay above cMinBusVoltage before the driver is
+    // enabled, so the supply has finished settling.
+    uint32_t cStartupSettleMs = 500;
 };
 
 
@@ -70,9 +81,13 @@ private:
     // measure where it locked. That mechanical angle, converted to electrical
     // radians, becomes _elPosOffset.
     enum class AlignPhase : uint8_t {
-        SETTLE,   // Rotor is swinging into alignment, do not measure yet.
-        MEASURE,  // Rotor should be locked, accumulate angle samples.
-        CURRENT,
+        NO_VOLTAGE,      // Wait for the bus before touching the DRV8323.
+        VOLTAGE_SETTLE,  // Bus is high; give the supply time to settle.
+        INIT_DRV,        // Configure and enable the DRV8323.
+        START_ONE_PHASE, // Apply the alignment field.
+        SETTLE,          // Rotor is swinging into alignment, do not measure yet.
+        MEASURE,         // Rotor should be locked, accumulate angle samples.
+        CURRENT,         // Measure the zero-current ADC offsets.
         DONE,
     };
 
@@ -98,8 +113,15 @@ private:
     // alignment field. 0.0 = uniformly spread, 1.0 = perfectly stationary.
     static constexpr float ALIGN_MIN_RESULTANT = 0.9f;
 
-    AlignPhase _alignPhase = AlignPhase::SETTLE;
+    AlignPhase _alignPhase = AlignPhase::NO_VOLTAGE;
     uint32_t _alignLoops = 0;
+
+    // Timestamp for the VOLTAGE_SETTLE phase. A timestamp instead of a loop
+    // count keeps the delay independent of the timer period.
+    int64_t _voltageSettleStartUs = 0;
+
+    void initializeDriver();
+    void applyAlignmentVoltage();
 
     // Circular mean accumulators. Summing sin and cos keeps the result correct
     // across the +-pi wrap, where a plain average of angles collapses toward
