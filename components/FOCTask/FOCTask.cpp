@@ -58,7 +58,7 @@ void FOCTask::begin() {
 
     esp_timer_create(&timerArgs, &focTimer);
     // TODO!
-    // Currently slower than 50us, just for debug. Also need optimizing, current peaks at 450+ us.
+    // Currently slower than 50us, just for debug. Also need optimizing, current peaks at 800+ us.
     esp_timer_start_periodic(focTimer, 1000);
 }
 
