@@ -100,12 +100,23 @@ esp_err_t DRV8323::set_pwm_mode(uint16_t mode) {
     uint16_t val = 0;
     esp_err_t ret = read_register(REG_DRIVER_CONTROL, val);
     if (ret != ESP_OK) return ret;
-    val = (val & ~0x0700) | mode;
+    // PWM_MODE is bits 6:5, not bits 10:8.
+    val = (val & ~0x0060) | (mode & 0x0060);
     return write_register(REG_DRIVER_CONTROL, val);
 }
 
 esp_err_t DRV8323::set_3x_pwm_mode() {
-    return set_pwm_mode(PWM_MODE_3X);
+    esp_err_t ret = set_pwm_mode(PWM_MODE_3X);
+    if (ret != ESP_OK) return ret;
+
+    // Read back the mode so a failed write is not silently ignored.
+    uint16_t val = 0;
+    ret = read_register(REG_DRIVER_CONTROL, val);
+    if (ret != ESP_OK) return ret;
+    if ((val & 0x0060) != PWM_MODE_3X) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
 }
 
 esp_err_t DRV8323::read_fault_status(uint16_t &status) {
