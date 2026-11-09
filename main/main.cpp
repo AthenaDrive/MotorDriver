@@ -34,8 +34,8 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(lsm.init());
 
     gpio_install_isr_service(0);
-    // Both SdCard (sdspi_host) and W5500 (esp_eth) use SPI3_HOST directly,
-    // so initialize it manually here rather than through SPIBase.
+    // The esp_eth W5500 MAC driver expects an initialized SPI3 bus, so set it
+    // up manually here rather than through SPIBase.
     spi_bus_config_t bus1_cfg = {};
     bus1_cfg.mosi_io_num = SPI1_PICO;
     bus1_cfg.miso_io_num = SPI1_POCI;
@@ -51,16 +51,16 @@ extern "C" void app_main(void) {
 
     // Start the FOC task first so it can keep reading the encoder even when
     // the bus is unpowered. Its startup state machine waits for the bus and
-    // only then initializes and enables the DRV8323.
+    // only then initializes and enables the DRV8320S.
     FOCTaskConfig focConfig{
-        .cDRV8323_CS = DRV8323_CS,
+        .cDRV8320S_CS = DRV8320S_CS,
         .cAS5047P_CS = AS5047P_CS,
         .cSPI0_CLK = SPI0_CLK,
         .cSPI0_PICO = SPI0_PICO,
         .cSPI0_POCI = SPI0_POCI,
-        .cDRV8323_ENABLE = DRV8323_ENABLE,
-        .cDRV8323_INL = DRV8323_INL,
-        .cDRV8323_nFAULT = DRV8323_nFAULT,
+        .cDRV8320S_ENABLE = DRV8320S_ENABLE,
+        .cDRV8320S_INL = DRV8320S_INL,
+        .cDRV8320S_nFAULT = DRV8320S_nFAULT,
         .cMinBusVoltage = 9.0f,
         .cStartupSettleMs = 500,
         .cUsePhaseBForFoc = false, // B current is still published, but FOC uses A and C.
@@ -84,7 +84,7 @@ extern "C" void app_main(void) {
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();
 
-    printf("All sensors, SD card, Ethernet, PWM, and ADC initialized.\n");
+    printf("All sensors, Ethernet, PWM, and ADC initialized.\n");
 
     float temp, vbus, vshunt, current, power;
     float ax, ay, az, gx, gy, gz, lsm_temp;

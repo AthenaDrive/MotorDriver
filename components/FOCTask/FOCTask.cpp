@@ -7,7 +7,7 @@ FOCTask::FOCTask(FOCTaskConfig &config)
     : _config(config),
     _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI),
     _encoder(_spi, _config.cAS5047P_CS),
-    _drv(_spi, _config.cDRV8323_CS, 1, 500000),
+    _drv(_spi, _config.cDRV8320S_CS, 1, 500000),
     _controller({1.0, 0.0, 1.0, 0.0, 10.0, 10.0}),
     _cascadePID({1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}),
     _prevTime(esp_timer_get_time()) {
@@ -21,31 +21,32 @@ void FOCTask::begin() {
     }
 
     // Keep CS deasserted while the bus and the other devices are set up. The
-    // DRV8323 itself is initialized later, after the bus voltage is valid.
-    gpio_set_direction(_config.cDRV8323_CS, GPIO_MODE_OUTPUT);
-    gpio_set_level(_config.cDRV8323_CS, 1);
+    // DRV8320S itself is initialized later, after the bus voltage is valid.
+    gpio_set_direction(_config.cDRV8320S_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(_config.cDRV8320S_CS, 1);
 
     gpio_config_t drvControl = {};
-    drvControl.pin_bit_mask = (1ULL << _config.cDRV8323_ENABLE) |
-                              (1ULL << _config.cDRV8323_INL);
+    drvControl.pin_bit_mask = (1ULL << _config.cDRV8320S_ENABLE) |
+                              (1ULL << _config.cDRV8320S_INL);
     drvControl.mode = GPIO_MODE_OUTPUT;
     drvControl.pull_up_en = GPIO_PULLUP_DISABLE;
     drvControl.pull_down_en = GPIO_PULLDOWN_DISABLE;
     drvControl.intr_type = GPIO_INTR_DISABLE;
     ESP_ERROR_CHECK(gpio_config(&drvControl));
 
-    gpio_set_level(_config.cDRV8323_ENABLE, 1);
-    gpio_set_level(_config.cDRV8323_INL, 0);
-    gpio_set_direction(_config.cDRV8323_nFAULT, GPIO_MODE_INPUT);
+    gpio_set_level(_config.cDRV8320S_ENABLE, 1);
+    gpio_set_level(_config.cDRV8320S_INL, 0);
+    gpio_set_direction(_config.cDRV8320S_nFAULT, GPIO_MODE_INPUT);
 
     ESP_ERROR_CHECK(_pwm.init(30000, 40000000, nullptr, nullptr));
-    // Leave the MCPWM compare values at 0 (INHx low) here. The DRV8323
+    // Leave the MCPWM compare values at 0 (INHx low) here. The DRV8320S
     // requires all INHx/INLx pins to be low while PWM_MODE is changed, and
     // initializeDriver() only runs after the bus voltage is stable.
 
     ESP_ERROR_CHECK(_spi.init());
     ESP_ERROR_CHECK(_encoder.init());
-    ESP_ERROR_CHECK(_adc.init(0.0035f, 20.0f, 1.65f));
+    // Board v3: 1 mOhm phase shunts with INA241A3 (50 V/V), mid-supply reference.
+    ESP_ERROR_CHECK(_adc.init(0.001f, 50.0f, 1.65f));
 
     esp_timer_handle_t focTimer;
     esp_timer_create_args_t timerArgs = {
@@ -67,7 +68,7 @@ void FOCTask::initializeDriver() {
 
     esp_err_t err = _drv.set_3x_pwm_mode();
     if (err != ESP_OK) {
-        printf("FOC: failed to set DRV8323 3x PWM mode (%s).\n", esp_err_to_name(err));
+        printf("FOC: failed to set DRV8320S 3x PWM mode (%s).\n", esp_err_to_name(err));
     }
 
     uint16_t drvReg = 0;
@@ -84,7 +85,7 @@ void FOCTask::initializeDriver() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
-    gpio_set_level(_config.cDRV8323_INL, 1);
+    gpio_set_level(_config.cDRV8320S_INL, 1);
 }
 
 void FOCTask::applyVoltageVector(float electricalAngle) {
@@ -158,13 +159,13 @@ void FOCTask::update() {
     uint16_t drv_fault = 0;
     uint16_t drv_vgs = 0;
     // if (_drv.read_fault_status(drv_fault) == ESP_OK) {
-    //     if (_drv.has_fault(drv_fault, DRV8323::FAULT_FLT)) {
-    //         // printf("DRV8323: FAULT=0x%04X\n", drv_fault);
+    //     if (_drv.has_fault(drv_fault, DRV8320S::FAULT_FLT)) {
+    //         // printf("DRV8320S: FAULT=0x%04X\n", drv_fault);
     //     }
     // }
     // if (_drv.read_vgs_status(drv_vgs) == ESP_OK) {
     //     if (drv_vgs) {
-    //         // printf("DRV8323: VGS=0x%04X\n", drv_vgs);
+    //         // printf("DRV8320S: VGS=0x%04X\n", drv_vgs);
     //     }
     // }
     // TODO: Not sure if this will be fucky wucky since datatype is 16 bit.
@@ -211,7 +212,7 @@ void FOCTask::update() {
                 return;
             }
 
-            printf("FOC: bus voltage stable, starting DRV8323.\n");
+            printf("FOC: bus voltage stable, starting DRV8320S.\n");
             _alignPhase = AlignPhase::INIT_DRV;
         }
 

@@ -14,7 +14,7 @@
 #include "CascadingPID.hpp"
 
 #include "AS5047P.hpp"
-#include "DRV8323.hpp"
+#include "DRV8320S.hpp"
 
 enum class PhaseOrderMode : uint8_t {
     AUTO,      // Detect the phase order during startup.
@@ -24,16 +24,16 @@ enum class PhaseOrderMode : uint8_t {
 
 struct FOCTaskConfig
 {
-    gpio_num_t cDRV8323_CS;
+    gpio_num_t cDRV8320S_CS;
     gpio_num_t cAS5047P_CS;
     gpio_num_t cSPI0_CLK;
     gpio_num_t cSPI0_PICO;
     gpio_num_t cSPI0_POCI;
-    gpio_num_t cDRV8323_ENABLE;
-    gpio_num_t cDRV8323_INL;
-    gpio_num_t cDRV8323_nFAULT;
+    gpio_num_t cDRV8320S_ENABLE;
+    gpio_num_t cDRV8320S_INL;
+    gpio_num_t cDRV8320S_nFAULT;
 
-    // The DRV8323 cannot start before the bus has reached its minimum
+    // The DRV8320S cannot start before the bus has reached its minimum
     // operating voltage. Keep a margin above the 6 V datasheet minimum.
     float cMinBusVoltage = 9.0f;
 
@@ -67,7 +67,7 @@ private:
     AS5047P _encoder;
     ADCOneshot _adc;
     StateEstimation _stateEstimation;
-    DRV8323 _drv;
+    DRV8320S _drv;
     Controller _controller;
     CascadingPID _cascadePID;
     Output _out;
@@ -97,9 +97,9 @@ private:
     // measure where it locked. That mechanical angle, converted to electrical
     // radians, becomes _elPosOffset.
     enum class AlignPhase : uint8_t {
-        NO_VOLTAGE,      // Wait for the bus before touching the DRV8323.
+        NO_VOLTAGE,      // Wait for the bus before touching the DRV8320S.
         VOLTAGE_SETTLE,  // Bus is high; give the supply time to settle.
-        INIT_DRV,        // Configure and enable the DRV8323.
+        INIT_DRV,        // Configure and enable the DRV8320S.
         START_ONE_PHASE, // Apply the alignment field.
         SETTLE,          // Rotor is swinging into alignment, do not measure yet.
         MEASURE,         // Rotor should be locked, accumulate angle samples.

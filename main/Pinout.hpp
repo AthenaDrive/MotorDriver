@@ -22,7 +22,7 @@
 // ============================================================
 // SPI Device Chip-Select Pins
 // ============================================================
-#define DRV8323_CS      GPIO_NUM_48
+#define DRV8320S_CS      GPIO_NUM_48
 #define AS5047P_CS      GPIO_NUM_13
 #define W5500_0_CS      GPIO_NUM_17
 #define W5500_1_CS      GPIO_NUM_15
@@ -34,19 +34,19 @@
 #define W5500_1_INT     GPIO_NUM_7
 
 // ============================================================
-// DRV8323 3-Phase PWM Inputs (3x PWM mode, low-side GPIO)
+// DRV8320S 3-Phase PWM Inputs (3x PWM mode, low-side GPIO)
 // ============================================================
-#define DRV8323_INHA    GPIO_NUM_39
-#define DRV8323_INHB    GPIO_NUM_40
-#define DRV8323_INHC    GPIO_NUM_41
+#define DRV8320S_INHA    GPIO_NUM_39
+#define DRV8320S_INHB    GPIO_NUM_40
+#define DRV8320S_INHC    GPIO_NUM_41
 
-#define DRV8323_INL     GPIO_NUM_42
+#define DRV8320S_INL     GPIO_NUM_42
 
 // ============================================================
-// DRV8323 Control Pins
+// DRV8320S Control Pins
 // ============================================================
-#define DRV8323_nFAULT  GPIO_NUM_3
-#define DRV8323_ENABLE  GPIO_NUM_38
+#define DRV8320S_nFAULT  GPIO_NUM_3
+#define DRV8320S_ENABLE  GPIO_NUM_38
 
 // ============================================================
 // Brake chopper PWM

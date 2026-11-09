@@ -5,9 +5,9 @@
 #include "SPIBase.hpp"
 #include "esp_err.h"
 
-#define DRV8323_CS_GPIO    GPIO_NUM_48
+#define DRV8320S_CS_GPIO    GPIO_NUM_48
 
-class DRV8323 {
+class DRV8320S {
 public:
     enum Register : uint8_t {
         REG_FAULT_STATUS_1 = 0x00,
@@ -46,7 +46,7 @@ public:
         FAULT_UVLO    = (1 << 0),
     };
 
-    DRV8323(SPIBase &spi, uint8_t cs_gpio = DRV8323_CS_GPIO,
+    DRV8320S(SPIBase &spi, uint8_t cs_gpio = DRV8320S_CS_GPIO,
             uint8_t spi_mode = 0, int clock_speed_hz = 5000000);
 
     esp_err_t init();
