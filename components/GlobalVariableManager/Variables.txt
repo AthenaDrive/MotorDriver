@@ -6,7 +6,7 @@ Buffer, udpFromControllerBuffer, 1024
 Buffer, tcpFromPeripheralBuffer, 1024
 Buffer, tcpFromControllerBuffer, 1024
 
-uint32_t, numPolePairs, 20
+uint32_t, numPolePairs, 7
 bool, wantedCalibrationMode, false
 bool, actualCalibrationMode, false
 float, angle, 0.0f
