@@ -1029,6 +1029,36 @@ void EthernetTask::begin() {
     xTaskCreatePinnedToCore(tcp_as_peripheral_task, "tcp_srv", 8192, &tcpConfigServer, 12, nullptr, 0);
     xTaskCreatePinnedToCore(tcp_as_controller_task, "tcp_cli", 8192, &tcpConfigClient, 12, nullptr, 0);
     vTaskDelay(pdMS_TO_TICKS(1000));
+
+    logLinkStatus("begin");
+    xTaskCreatePinnedToCore(linkMonitorTask, "eth_link", 4096, this, 5, nullptr, 0);
+}
+
+void EthernetTask::logLinkStatus(const char *when) {
+    printf("ETH: link ETH_0=%s ETH_1=%s (%s)\n",
+           isLinkUp(0) ? "UP" : "DOWN",
+           isLinkUp(1) ? "UP" : "DOWN",
+           when ? when : "");
+    _eth0.log_phy_status(when);
+    _eth1.log_phy_status(when);
+}
+
+void EthernetTask::linkMonitorTask(void *arg) {
+    EthernetTask *self = static_cast<EthernetTask *>(arg);
+    bool prev0 = self->isLinkUp(0);
+    bool prev1 = self->isLinkUp(1);
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(2000));
+
+        bool link0 = self->isLinkUp(0);
+        bool link1 = self->isLinkUp(1);
+        if (link0 != prev0 || link1 != prev1) {
+            self->logLinkStatus("change");
+            prev0 = link0;
+            prev1 = link1;
+        }
+    }
 }
 
 bool EthernetTask::isLinkUp(int ix) {

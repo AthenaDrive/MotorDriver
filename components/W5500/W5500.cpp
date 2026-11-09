@@ -74,6 +74,11 @@ esp_err_t W5500::init() {
     {
         eth_phy_config_t phy_cfg = ETH_PHY_DEFAULT_CONFIG();
         phy_cfg.phy_addr = 0;       // W5500 internal PHY address is always 0
+        // The board does not route either W5500 RSTn to a GPIO; both are
+        // pulled up to 3V3. ESP-IDF's default reset GPIO is 5, which is
+        // ADC_CUR_B on this board, so leaving it at the default would make
+        // the Ethernet driver drive that ADC input during PHY reset.
+        phy_cfg.reset_gpio_num = -1;
         _phy = esp_eth_phy_new_w5500(&phy_cfg);
     }
     if (!_phy) {
@@ -90,6 +95,7 @@ esp_err_t W5500::init() {
         _mac = nullptr; _phy = nullptr;
         return ESP_FAIL;
     }
+    log_phy_status("after install");
 
     uint8_t mac_addr[6] = {};
     if (_eth_idx == 0) {
@@ -150,6 +156,7 @@ esp_err_t W5500::init() {
         _mac = nullptr; _phy = nullptr; _eth_handle = nullptr; _glue = nullptr; _netif = nullptr;
         return ESP_FAIL;
     }
+    log_phy_status("after start");
 
     _initialized = true;
     ESP_LOGI(TAG, "W5500[%d] ready (CS:%d, INT:%d)", _eth_idx, _cs_gpio, _int_gpio);
@@ -192,6 +199,42 @@ esp_err_t W5500::deinit() {
 
     _initialized = false;
     return ESP_OK;
+}
+
+esp_err_t W5500::read_phycfgr(uint8_t *value) const {
+    if (!_eth_handle || !value) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint32_t reg_value = 0;
+    esp_eth_phy_reg_rw_data_t rw = {
+        // W5500 PHYCFGR: common-register block offset 0x002E.
+        // The ESP-IDF W5500 MAC driver expects the mapped address
+        // (offset << 16 | block select), not the raw 0x2E offset.
+        .reg_addr = 0x002E0000,
+        .reg_value_p = &reg_value,
+    };
+    esp_err_t ret = esp_eth_ioctl(_eth_handle, ETH_CMD_READ_PHY_REG, &rw);
+    if (ret == ESP_OK) {
+        *value = static_cast<uint8_t>(reg_value);
+    }
+    return ret;
+}
+
+void W5500::log_phy_status(const char *when) const {
+    uint8_t phycfgr = 0;
+    esp_err_t ret = read_phycfgr(&phycfgr);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "W5500[%d] PHYCFGR read failed (%s): %s",
+                 _eth_idx, when ? when : "", esp_err_to_name(ret));
+        return;
+    }
+
+    ESP_LOGI(TAG,
+             "W5500[%d] PHYCFGR=0x%02x %s: rst=%d opsel=%d opmd=%d link=%d speed=%d duplex=%d",
+             _eth_idx, phycfgr, when ? when : "",
+             (phycfgr >> 7) & 1, (phycfgr >> 6) & 1, (phycfgr >> 3) & 7,
+             phycfgr & 1, (phycfgr >> 1) & 1, (phycfgr >> 2) & 1);
 }
 
 esp_err_t W5500::set_static_ip(const char *ip, const char *netmask, const char *gw) {

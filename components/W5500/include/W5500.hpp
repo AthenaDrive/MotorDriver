@@ -17,6 +17,10 @@ public:
     esp_err_t set_static_ip(const char *ip, const char *netmask = "255.255.255.0",
                             const char *gw = "192.168.1.1");
 
+    // Read W5500 PHYCFGR (0x002E) through the ESP-IDF PHY register API.
+    esp_err_t read_phycfgr(uint8_t *value) const;
+    void log_phy_status(const char *when) const;
+
     esp_eth_handle_t eth_handle() const { return _eth_handle; }
     esp_netif_t *netif() const { return _netif; }
     bool is_initialized() const { return _initialized; }

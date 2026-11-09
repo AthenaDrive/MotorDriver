@@ -45,6 +45,7 @@ public:
     bool isLinkUp(int ix);
     static bool isLinkUp(esp_netif_t* netifInstance);
     void printIP();
+    void logLinkStatus(const char *when);
 
 private:
     EthernetTaskConfig _config;
@@ -56,4 +57,6 @@ private:
     char _eth1_ip[24];
     char _controllerDestIP[24];
     char _peripheralDestIP[24];
+
+    static void linkMonitorTask(void *arg);
 };
