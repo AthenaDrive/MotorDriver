@@ -42,17 +42,23 @@ void Controller::_parkTransform(const float sinElectricalPos, const float cosEle
 }
 
 void Controller::_PILoop(const float iqRef, const float motorVelocity) {
-	float idRef = 0.0f;
-	float vdPI = _dReg.update(idRef - _parkId);
-	float vqPI = _qReg.update(iqRef - _parkIq);
+    float idRef = 0.0f;
+    float vdPI = _dReg.update(idRef - _parkId);
+    float vqPI = _qReg.update(iqRef - _parkIq);
 
-	float motor_l = 0.001f; // TODO! Find motor L
-	float motor_flux = 0.00067f; // TODO! Find motor flux
-	float vd_decouple = - motorVelocity * motor_l * _parkIq;
-	float vq_decouple = motorVelocity * motor_l * _parkId + motorVelocity * motor_flux;
+    constexpr float motor_r = 0.039f;       // Phase resistance (Ohm)
+    constexpr float motor_l = 0.000016f;   // Phase inductance (H)
+    constexpr float motor_flux = 0.00292f; // Flux linkage (Wb)
 
-	_parkVd = vdPI + vd_decouple;
-	_parkVq = vqPI + vq_decouple;
+    float vd_decouple = -motorVelocity * motor_l * _parkIq;
+    float vq_decouple = motorVelocity * motor_l * _parkId
+                      + motorVelocity * motor_flux;
+
+    float vd_resistance = motor_r * _parkId;
+    float vq_resistance = motor_r * _parkIq;
+
+    _parkVd = vdPI + vd_decouple + vd_resistance;
+    _parkVq = vqPI + vq_decouple + vq_resistance;
 }
 
 void Controller::_parkInverse(const float sinElectricalPos, const float cosElectricalPos) {
