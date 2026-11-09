@@ -72,6 +72,7 @@ Everything important is in `main/` and `components/`. `build/` and
 | `main/Pinout.hpp` | Canonical GPIO map |
 | `main/Config.hpp` | I2C addresses, INA238 calibration, IP/port/startup constants |
 | `main/CMakeLists.txt` | `main` component requirements |
+| `TODO.md` | Actionable next-iteration checklist (PCB erratum, firmware TODOs) |
 | `components/GlobalVariableManager/` | Generated shared state (`Variables.txt` is the source of truth) |
 | `components/FOCTask/` | FOC task, startup/alignment state machine, current sensing |
 | `components/Controller/` | Clarke/Park transforms and d/q PI current loop |
@@ -259,6 +260,12 @@ Each board has two W5500s:
 - **ETH_0 = upstream** (faces the PC or the previous board)
 - **ETH_1 = downstream** (faces the next board)
 
+**Cabling:** the W5500 has **no auto-MDIX**, and both RJ45 ports on board v3 are
+wired as MDI. A board-to-board link therefore requires a **crossover cable** or a
+switch between the boards. A straight-through cable only works toward the PC or a
+switch because those peers auto-correct the MDI/MDI-X pairing. See also the port-2
+RX termination erratum in §8.
+
 IP scheme with auto-IP enabled (`Config.hpp`):
 
 | Node | ETH_0 (upstream) | ETH_1 (downstream) |
@@ -420,6 +427,32 @@ update all three places (and any `Config.hpp` assumptions).
 | IMU / temperature | **LSM6DSOWTR** (`U5`), **LM75AD,118** (`U11`) |
 | Power input / motor | XT30PW-M, 3-pin motor terminal, brake-resistor header |
 
+### Board v3 errata (check before bringing up a new PCB)
+
+- **Downstream RJ45 / W5500 #1 RX termination is wrong.** The two W5500s are
+  `U15` (port 1 / ETH_0) and `U4` (port 2 / ETH_1). Port 1's RX network is the
+  reference: `RXP`/`RXN` each have a 33 Ω series resistor, then a 49.9 Ω resistor
+  to the transformer center tap, with 10 nF from the center tap to GND and 6.8 nF
+  from each RX node to the RJ45. On port 2, `R117` (49.9 Ω) is wired **across RXP
+  and RXN** instead of RXP→center tap, the RJ45 center tap (`RJ5` pin `2(5)`) is
+  tied directly to RXN, and the RXP→center-tap 49.9 Ω resistor is missing. The
+  BOM reflects the error: 7× 49.9 Ω instead of 8×.
+  - Symptom: ETH_1 never links and its LEDs stay dark even with a known-good PC
+    cable or crossover cable. `PHYCFGR` reports `0xfa` (`rst=1`, `opmd=7`,
+    `link=0`) — the PHY is configured correctly but has no link.
+  - Next PCB revision: copy port 1's RX network to port 2, isolate the center tap
+    from RXN, add the missing 49.9 Ω, and update the BOM to 8× 49.9 Ω.
+  - Prototype bodge: cut the RXN/center-tap net, repurpose `R117` as RXP→center
+    tap, add a 49.9 Ω from RXN→center tap, and verify the center tap is no longer
+    shorted to RXN.
+- **No W5500 hardware-reset GPIO.** Both `RSTn` nets are pull-up only; the ESP32
+  does not control them. In `W5500::init()` the PHY config must keep
+  `phy_cfg.reset_gpio_num = -1`. ESP-IDF 6.0.1's `ETH_PHY_DEFAULT_CONFIG()`
+  defaults to GPIO5, which is `ADC_CUR_B` on this board; leaving the default would
+  make Ethernet init drive the phase-B current-sense input high after
+  `ADCOneshot::init()` and corrupt phase-B readings. This was fixed; do not
+  revert it.
+
 ### SPI details
 
 - `SPIBase` ref-counts buses by host + pins; multiple drivers can share a bus.
@@ -430,6 +463,9 @@ update all three places (and any `Config.hpp` assumptions).
 - W5500 runs at **30 MHz**; both instances use `SPI3_HOST`, which `main.cpp`
   initializes manually with a 4096-byte max transfer.
 - W5500 #0 and #1 get different MAC addresses (base MAC and base+1).
+- `W5500::log_phy_status()` reads and decodes PHYCFGR (`rst`, `opsel`, `opmd`,
+  `link`, speed, duplex); `EthernetTask` also logs link changes from a monitor
+  task. Use these before assuming an IP/socket bug when a port will not link.
 
 ### Gate driver notes (DRV8320S)
 
@@ -479,8 +515,20 @@ the board-v3 shunt, amplifier gain, and mid-supply reference.
 
 ## 9. Known TODOs and weak spots
 
-Treat these as current reality, not as instructions to fix everything at once:
+Treat these as current reality, not as instructions to fix everything at once.
+The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
 
+- **Downstream Ethernet hardware erratum:** board v3 port 2 has the W5500 #1 RX
+  termination error described in §8. ETH_1 cannot link until that is reworked or
+  fixed in the next PCB revision. Do not chase this as a software bug.
+- **Discovery race:** if two boards boot simultaneously, the downstream board can
+  time out before the upstream responder starts (responder is up at ~7.5 s; the
+  current discovery window ends at ~7 s) and both boards default to position 0.
+- **Task-config lifetime:** the `_TaskConfigUDP` / `_TaskConfigTCP` structs are
+  stack locals in `EthernetTask::begin()` passed by pointer to tasks. The 1 s
+  delay hides it, but make the storage static or heap-owned.
+- **TCP server VLA:** `uint8_t message[lengthPrefix & 0xFFFF]` in
+  `tcp_as_peripheral_task` can overflow the 8 KB task stack.
 - **FOC loop timing:** 1000 µs period, but the loop can take 800+ µs and the comment
   says it needs optimization. Raising the rate without profiling is unsafe.
 - **State estimation:** velocity is a low-passed derivative of the encoder angle and
