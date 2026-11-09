@@ -489,8 +489,9 @@ Treat these as current reality, not as instructions to fix everything at once:
 - **Motor constants:** `Controller.cpp` hard-codes `motor_l = 1 mH` and
   `motor_flux = 0.67 mWb` with `TODO! Find motor L/flux`.
 - **CascadingPID is dead code in the active path:** it is constructed but
-  `compute()` is never called. `drivingMode` 3/4/5 currently do not engage the
-  position/velocity cascade.
+  `compute()` is never called. It takes `drivingMode` plus a `CascadePidValues`
+  struct (setpoints/feedback) as arguments and has no GVM access. `drivingMode`
+  3/4/5 currently do not engage the position/velocity cascade.
 - **Limits/gains over TCP are not all applied:** torque/velocity/position gains and
   `currentLimit*` are accepted and stored, but the active FOC path only reads
   `torqueSetpoint` (plus pole pairs and a few GVM values). Do not assume setting a
