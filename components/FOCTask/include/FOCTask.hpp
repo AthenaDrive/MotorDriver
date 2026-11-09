@@ -44,6 +44,11 @@ struct FOCTaskConfig
     // AUTO runs a short direction test after the alignment lock. NORMAL and
     // REVERSED skip the test and force the corresponding phase order.
     PhaseOrderMode cPhaseOrderMode = PhaseOrderMode::AUTO;
+
+    // When false, the FOC Clarke transform uses phase A and C and reconstructs
+    // phase B as Ib = -Ia - Ic. The real B current is still measured and
+    // published through the GVM, but it does not affect the control loop.
+    bool cUsePhaseBForFoc = false;
 };
 
 

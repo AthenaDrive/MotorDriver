@@ -39,9 +39,9 @@ void FOCTask::begin() {
     gpio_set_direction(_config.cDRV8323_nFAULT, GPIO_MODE_INPUT);
 
     ESP_ERROR_CHECK(_pwm.init(30000, 40000000, nullptr, nullptr));
-    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
-    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+    // Leave the MCPWM compare values at 0 (INHx low) here. The DRV8323
+    // requires all INHx/INLx pins to be low while PWM_MODE is changed, and
+    // initializeDriver() only runs after the bus voltage is stable.
 
     ESP_ERROR_CHECK(_spi.init());
     ESP_ERROR_CHECK(_encoder.init());
@@ -79,6 +79,11 @@ void FOCTask::initializeDriver() {
         printf("Register %i: %i\n", i, drvReg);
     }
 
+    // PWM_MODE is configured and the inputs are still low. Now it is safe to
+    // put the bridge in its neutral state and enable the low-side inputs.
+    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
+    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
     gpio_set_level(_config.cDRV8323_INL, 1);
 }
 
@@ -292,9 +297,13 @@ void FOCTask::update() {
                     _alignPhase = AlignPhase::DIRECTION_RAMP;
                 } else {
                     _controller.setPhaseOrder(_config.cPhaseOrderMode == PhaseOrderMode::REVERSED);
-                    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
-                    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
-                    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+                    // Turn all low-side FETs on. That shorts the windings to a
+                    // known ground potential, so any current from the
+                    // alignment test decays before the zero-current offsets are
+                    // measured.
+                    _pwm.set_duty(MCPWMDriver::CHANNEL_A, 0.0f);
+                    _pwm.set_duty(MCPWMDriver::CHANNEL_B, 0.0f);
+                    _pwm.set_duty(MCPWMDriver::CHANNEL_C, 0.0f);
                     _alignPhase = AlignPhase::CURRENT;
                 }
             }
@@ -353,9 +362,11 @@ void FOCTask::update() {
                        deltaElectrical,
                        _reversePhaseSequence ? "REVERSED" : "NORMAL");
 
-                _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
-                _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
-                _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+                // Brake all phases so the +90-degree direction-test current
+                // cannot leak into the current-sense offset measurement.
+                _pwm.set_duty(MCPWMDriver::CHANNEL_A, 0.0f);
+                _pwm.set_duty(MCPWMDriver::CHANNEL_B, 0.0f);
+                _pwm.set_duty(MCPWMDriver::CHANNEL_C, 0.0f);
 
                 _alignPhase = AlignPhase::CURRENT;
             }
@@ -374,6 +385,12 @@ void FOCTask::update() {
             }
 
             if (CURRENT_BASELINE_LOOPS == 0) {
+                // Offsets are captured with the bridge braking. Return to the
+                // neutral 50% state before the FOC loop takes over.
+                _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
+                _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
+                _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
+
                 _alignPhase = AlignPhase::DONE;
 
                 phaseOffsetA = sumPhaseOffsetA / numCurrentReadings;
@@ -407,8 +424,13 @@ void FOCTask::update() {
     float currentB = lowpassCurrentB.update(static_cast<float>(mvPhaseB - phaseOffsetB) / 50.0f);
     float currentC = lowpassCurrentC.update(static_cast<float>(mvPhaseC - phaseOffsetC) / 50.0f);
 
+    // Phase B is still measured and published through the GVM, but the FOC
+    // controller can use only A and C and derive the balanced B current.
+    // This keeps the control loop working even if the B current sensor is bad.
+    float currentBForFoc = _config.cUsePhaseBForFoc ? currentB : -(currentA + currentC);
+
     float omegaE = velocity * numPolePairs;
-    _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, currentA, currentB);
+    _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, currentA, currentBForFoc);
 
     float maxVal = 30.0f;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
