@@ -11,7 +11,6 @@
 #include "LM75A.hpp"
 #include "INA238.hpp"
 #include "LSM6DSO.hpp"
-#include "SdCard.hpp"
 #include "EthernetTask.hpp"
 #include "FOCTask.hpp"
 #include "GlobalVariableManager.hpp"
