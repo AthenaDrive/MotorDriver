@@ -8,7 +8,6 @@
 #include "esp_timer.h"
 #include "I2CBase.hpp"
 #include "SPIBase.hpp"
-#include "MCP23017.hpp"
 #include "LM75A.hpp"
 #include "INA238.hpp"
 #include "LSM6DSO.hpp"
