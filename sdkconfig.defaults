@@ -1,1 +1,19 @@
 CONFIG_ETH_USE_SPI_ETHERNET=y
+# Keep the TCP/IP task on core 0; core 1 is reserved for the FOC loop.
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
+# The FOC and Ethernet code share one flash instruction cache. 16 KB is not
+# enough for both call trees; 32 KB reduces the eviction rate.
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+# MCPWMDriver::set_duty runs 3x per FOC iteration and calls
+# mcpwm_comparator_set_compare_value. Keep the IDF control functions in IRAM
+# so the PWM stage cannot take a flash-cache miss.
+CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y
+# Encoder SPI path: keep the SPI master transmit functions out of flash.
+# SPI_MASTER_IN_IRAM requires FREERTOS_IN_IRAM.
+CONFIG_FREERTOS_IN_IRAM=y
+CONFIG_SPI_MASTER_IN_IRAM=y
+# ADC continuous path: xRingbufferReceiveUpTo is called while draining the
+# phase-current DMA pool. Keep it out of flash.
+CONFIG_RINGBUF_IN_IRAM=y
+# Document/lock the requirement that the ADC continuous ISR is IRAM-safe.
+CONFIG_ADC_CONTINUOUS_ISR_IRAM_SAFE=y

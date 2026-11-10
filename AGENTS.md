@@ -1,7 +1,7 @@
 # AGENTS.md — AthenaDrive firmware
 
 > Preprompt and onboarding for AI coding agents working in this repository.
-> Last verified against the working tree and the `AthenaDrive/PCB` v3 BOM: **2026-11-09**.
+> Last verified against the repository and the `AthenaDrive/PCB` v3 BOM: **2026-11-10**.
 > If this file and the code disagree, trust the code, then update this file.
 
 ---
@@ -45,7 +45,7 @@ Main capabilities:
   (SPI variant, no internal current-sense amps; phase current is measured externally)
 - **AS5047P** magnetic encoder for rotor position
 - Phase-current sensing with **3x TI INA241A3** current-sense amplifiers and
-  **1 mΩ** phase shunts, read through **ADC1 oneshot**
+  **1 mΩ** phase shunts, read through **ADC1 continuous/DMA**
 - **INA238** bus voltage/current/power monitor, **LM75A** temperature sensor,
   **LSM6DSO** IMU
 - Two **W5500** SPI Ethernet controllers forming a **daisy chain**
@@ -81,7 +81,8 @@ Everything important is in `main/` and `components/`. `build/` and
 | `components/DRV8320S/` | Gate-driver SPI registers and PWM mode |
 | `components/AS5047P/` | Encoder SPI protocol and pipelined reads |
 | `components/MCPWMDriver/` | 3-phase center-aligned PWM |
-| `components/ADCOneshot/` | Phase-current ADC |
+| `components/ADCContinuous/` | Phase-current ADC, ADC1 continuous/DMA (active path) |
+| `components/ADCOneshot/` | Older blocking phase-current driver, no longer used by FOC |
 | `components/EthernetTask/` | W5500 Ethernet, daisy-chain routing, UDP/TCP protocol |
 | `components/EthernetTask/Discovery.*` | Auto-IP position discovery |
 | `components/W5500/` | Local dual-W5500 wrapper around `espressif/w5500` |
@@ -125,6 +126,8 @@ Notes:
 
 - `sdkconfig` is machine-local and gitignored. Persistent Kconfig changes belong in
   `sdkconfig.defaults`; ask before changing either.
+- The target is pinned to **esp32s3** in the top-level `CMakeLists.txt`, so a fresh
+  clone builds for the right chip without running `idf.py set-target`.
 - `managed_components/` is gitignored but present locally. Do not edit fetched code.
 - After adding a component or a new dependency, update the consuming component's
   `CMakeLists.txt` (`REQUIRES`/`PRIV_REQUIRES`) and run `idf.py reconfigure`.
@@ -142,14 +145,23 @@ Notes:
 
 | Context | Entry | Rate / priority | Notes |
 | --- | --- | --- | --- |
-| `app_main` | `main/main.cpp` | ~1 ms polling loop | Reads I2C sensors, publishes to GVM |
-| FOC | `FOCTask::update` via `esp_timer` | **1000 µs (1 kHz)**, `ESP_TIMER_TASK` | Treat as hard real-time: no blocking, no allocation, no heavy logging |
+| `app_main` | `main/main.cpp` | ~1 ms polling loop | Core 0; reads I2C sensors, publishes to GVM |
+| FOC | `FOCTask::taskLoop` via esp_timer notification | **100 µs (10 kHz)**, priority 22, pinned core 1 | Treat as hard real-time: no blocking, no allocation, no heavy logging |
 | Ethernet | `EthernetTask::begin` | 4 tasks, priority 12, pinned core 0 | 2 UDP + 2 TCP, 10 ms loops |
-| Discovery responder | `Discovery.cpp` | FreeRTOS task, priority 8 | ETH_1, only when auto-IP is enabled |
+| Discovery responder | `Discovery.cpp` | FreeRTOS task, priority 8, pinned core 0 | ETH_1, only when auto-IP is enabled |
 
-The FOC callback is not an ISR, but it runs in the esp_timer task and must finish
-well inside its period. The code comments say the loop currently overruns at times
-(peaks of 800+ µs), so do not add work there without measuring.
+Core split: **core 1 runs only the FOC task**; core 0 owns the esp_timer task,
+Ethernet socket tasks, lwIP, W5500 RX tasks, discovery, and `app_main`. The esp_timer
+callback itself only calls `xTaskNotify()`; it does not run the control loop. Keep
+new work off core 1 and avoid unpinned tasks (they can migrate there).
+
+The ESP32-S3 has a **shared flash instruction cache**. This project runs with
+`CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y`; at 16 KB the FOC and Ethernet code
+thrashed each other and the loop was ~2.6× slower. Do not reduce it without
+re-measuring. At the 100 µs period the loop is ~32 µs average and ~47 µs max
+with `FOC_PROFILE 1`; the profiler adds ~6-7 µs of `esp_timer_get_time()` calls,
+so a normal build is roughly 25-26 µs average. Phase currents come from the ADC
+continuous/DMA ring buffer, which the FOC loop drains once per iteration.
 
 ### Boot sequence
 
@@ -159,8 +171,9 @@ well inside its period. The code comments say the loop currently overruns at tim
 3. GPIO ISR service is installed; **SPI3_HOST** is initialized manually because the
    `esp_eth` W5500 MAC driver expects a ready SPI bus.
 4. `FOCTask::begin()` configures DRV control pins, starts 30 kHz center-aligned PWM
-   with outputs low, starts SPI2, initializes the encoder and ADC, then starts the
-   1 kHz esp_timer.
+   with outputs low, starts SPI2, initializes the encoder and ADC, creates the
+   dedicated `foc` task (core 1, priority 22, 8 KB stack), then starts the 100 µs
+   esp_timer. The timer callback only notifies that task.
 5. `EthernetTask` constructor initializes both W5500s and assigns temporary IPs;
    `begin()` runs discovery, assigns final IPs, starts the responder, and spawns the
    four socket tasks.
@@ -185,8 +198,12 @@ well inside its period. The code comments say the loop currently overruns at tim
 8. `DONE` — restore 50% neutral and run closed-loop FOC using
    `torqueSetpoint` directly as `iqRef`.
 
-At 1 kHz the full startup takes roughly **19 seconds** after the bus becomes valid.
-That is expected; do not shorten the settle/measure counts without approval.
+At the current 100 µs period the full startup takes roughly **2.4 seconds** after the
+bus becomes valid (18,500 loop-counted steps = 1.85 s, plus the 500 ms voltage
+settle). The alignment/direction/current windows are loop-counted, so changing the
+period again changes them; convert them to time if the loop rate changes
+substantially. The active PI gains have `Ki = 0`; if integral gain is enabled, its
+per-iteration scale also depends on the period.
 
 While the bus is below 9 V, the FOC timer still runs so the encoder keeps updating
 the GVM, but the gate driver is never initialized or enabled.
@@ -238,6 +255,10 @@ What the generator produces:
   `set<Name>(const uint8_t*, uint32_t size)` with an internal mutex.
 - `# Consts` entries become `static constexpr`.
 - Floats are stored as atomic 32-bit patterns.
+- Scalar getters/setters and the float load/store helpers are emitted with
+  `IRAM_ATTR` so the FOC loop does not take a flash miss. `Buffer` accessors stay
+  in flash because they take a mutex and `memcpy`. Floats use `std::bit_cast`
+  instead of `memcpy`.
 
 Gotchas:
 
@@ -381,9 +402,10 @@ uint32_t header   // bitmask inside the payload
   physical duty range is 20–80%.
 - Phase-current conversion in the FOC loop is `(millivolts - offset) / 50.0f`.
   That is correct for board v3: 1 mΩ shunt × INA241A3 gain of 50 V/V = 50 mV/A.
-- `cUsePhaseBForFoc = false` by default: the controller receives phase A and a
-  reconstructed `Ib = -(Ia + Ic)`. The real phase B current is still measured and
-  published via the GVM. Do not assume the B sensor is unused or broken.
+- `main.cpp` sets `cUsePhaseBForFoc = true`, so the controller uses the real phase
+  A and B currents. The field still supports `false`, which uses phase A and
+  reconstructs `Ib = -(Ia + Ic)`; phase C is always measured and published via the
+  GVM. Do not assume a phase-current sensor is unused or broken.
 - Bus current is **negated** in `main.cpp` because the shunt wiring is reversed.
   Do not remove that sign without checking the hardware.
 - `drivingMode` values in `CascadingPID`: 3 = position, 4 = velocity, 5 = torque.
@@ -402,7 +424,7 @@ uint32_t header   // bitmask inside the payload
 | I2C | new I2C master | SDA GPIO11, SCL GPIO12, 400 kHz |
 | SPI2 | `SPI2_HOST` | DRV8320S (CS GPIO48), AS5047P (CS GPIO13) |
 | SPI3 | `SPI3_HOST` | W5500 #0 (CS17, INT16), W5500 #1 (CS15, INT7) |
-| ADC1 | oneshot | phase A GPIO6, B GPIO5, C GPIO4 |
+| ADC1 | continuous (DMA) | phase A GPIO6, B GPIO5, C GPIO4 |
 | MCPWM | group 0 | INHA 39, INHB 40, INHC 41, 30 kHz center-aligned |
 | GPIO | — | DRV ENABLE 38, nFAULT 3, INL 42, brake chopper 1 |
 
@@ -410,8 +432,9 @@ I2C addresses (`Config.hpp`): INA238 `0x40`, LM75A `0x48`, LSM6DSO `0x6A`.
 `CS_EXTERNAL` (GPIO10) remains in `Pinout.hpp` but is unused by the current firmware.
 
 **Pin duplication warning:** `MCPWMDriver.cpp` hard-codes GPIO 39/40/41 and
-`ADCOneshot.cpp` hard-codes GPIO 4/5/6, duplicating `Pinout.hpp`. If pinout changes,
-update all three places (and any `Config.hpp` assumptions).
+`ADCContinuous.cpp` hard-codes the phase-current channel map (GPIO 4/5/6),
+duplicating `Pinout.hpp`. If pinout changes, update all three places (and any
+`Config.hpp` assumptions).
 
 ### Board v3 key parts (from `AthenaDrive/PCB` BOM)
 
@@ -450,16 +473,20 @@ update all three places (and any `Config.hpp` assumptions).
   `phy_cfg.reset_gpio_num = -1`. ESP-IDF 6.0.1's `ETH_PHY_DEFAULT_CONFIG()`
   defaults to GPIO5, which is `ADC_CUR_B` on this board; leaving the default would
   make Ethernet init drive the phase-B current-sense input high after
-  `ADCOneshot::init()` and corrupt phase-B readings. This was fixed; do not
+  `ADCContinuous::init()` and corrupt phase-B readings. This was fixed; do not
   revert it.
 
 ### SPI details
 
 - `SPIBase` ref-counts buses by host + pins; multiple drivers can share a bus.
+- **SPI2 is initialized with `SPI_DMA_DISABLED`.** The encoder/DRV transfers are
+  16-bit; with DMA enabled the IDF SPI driver allocates two bounce buffers, memcpys,
+  and cache-syncs for every transaction, which cost more than the transfer. Do not
+  re-enable DMA for SPI2 without measuring.
 - `DRV8320S` is constructed in `FOCTask` with **SPI mode 1 at 500 kHz**, even though
   the constructor default is mode 0.
-- AS5047P uses **SPI mode 1** and the default **5 MHz**; it supports a pipelined
-  angle read and applies even parity.
+- AS5047P uses **SPI mode 1 at 10 MHz** (the constructor default is 5 MHz); it
+  supports a pipelined angle read and applies even parity.
 - W5500 runs at **30 MHz**; both instances use `SPI3_HOST`, which `main.cpp`
   initializes manually with a 4096-byte max transfer.
 - W5500 #0 and #1 get different MAC addresses (base MAC and base+1).
@@ -503,13 +530,33 @@ Iphase = (Vout_mV - zeroOffset_mV) / 50
 ```
 
 This exactly matches `FOCTask`'s `/ 50.0f` conversion. All three phases are
-populated and measured; the FOC controller currently uses A and C and reconstructs
-B (`cUsePhaseBForFoc = false`), but B is still published. The INA241 outputs are
+populated and measured. `main.cpp` currently sets `cUsePhaseBForFoc = true`, so the
+controller uses the real A and B currents; C is still published. Setting it to
+`false` switches the controller to A plus a reconstructed B. The INA241 outputs are
 biased around mid-supply (the firmware assumes 1.65 V); it measures the
 zero-current offset during the startup `CURRENT` phase and subtracts it.
 
-`ADCOneshot::init()` in `FOCTask` is configured as `0.001f, 50.0f, 1.65f` to match
-the board-v3 shunt, amplifier gain, and mid-supply reference.
+`ADCContinuous::init()` in `FOCTask` is configured as `0.001f, 50.0f, 1.65f` to
+match the board-v3 shunt, amplifier gain, and mid-supply reference. It runs ADC1
+in continuous/DMA mode at 60 kHz total (20 kHz per phase), with 48-byte DMA
+frames and a 1 KB pool flushed from the oldest end if the FOC loop ever falls
+behind. `read_voltage_all()` drains the pool once per FOC iteration and keeps the
+newest raw value of each channel.
+
+Do not call `adc_cali_raw_to_voltage()` from the FOC loop. The IDF curve-fitting
+path is a 5-term 64-bit polynomial with runtime 64-bit divisions; three calls
+were ~27 µs average with >100 µs peaks. `ADCContinuous::init()` builds a 65-entry
+raw→mV table once, and the hot path interpolates it (a few mV worst-case error,
+well under 0.1 A at 50 mV/A).
+
+The ADC continuous DMA ISR is allocated when `ADCContinuous::init()` creates the
+driver from `app_main`, so it runs on **core 0**. The FOC task drains the ring
+buffer on **core 1**. Keep it that way: moving the ISR to core 1 would make it
+preempt the control loop. `refresh()`, `parse_latest()`, `read_voltage_all()` and
+the LUT interpolation are placed in IRAM so core 0's Ethernet traffic cannot
+evict them from the shared flash I-cache. The IDF `adc_continuous_read()` and
+`xRingbufferReceiveUpTo()` are still flash-resident; `CONFIG_RINGBUF_IN_IRAM=y`
+would move the latter into IRAM if the remaining max spikes matter.
 
 ---
 
@@ -529,13 +576,21 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
   delay hides it, but make the storage static or heap-owned.
 - **TCP server VLA:** `uint8_t message[lengthPrefix & 0xFFFF]` in
   `tcp_as_peripheral_task` can overflow the 8 KB task stack.
-- **FOC loop timing:** 1000 µs period, but the loop can take 800+ µs and the comment
-  says it needs optimization. Raising the rate without profiling is unsafe.
+- **FOC loop timing:** runs at a 100 µs period (10 kHz). With the 32 KB I-cache
+  and the IRAM pass, the profiled loop is ~32 µs average / ~47 µs max. The
+  profiler itself costs ~6-7 µs (7 intermediate `esp_timer_get_time()` calls at
+  ~0.85 µs), so `FOC_PROFILE 0` gives roughly 25-26 µs average. The 100 µs period
+  leaves ~50 µs of headroom at the observed max; watch for overruns when
+  Ethernet is active. Startup delays are loop-counted and now total ~2.4 s; the
+  active PI has `Ki = 0`, but re-check the integrator scale if you enable it.
 - **State estimation:** velocity is a low-passed derivative of the encoder angle and
   is noisy; acceleration is described in-code as not working. A Kalman/PLL is a
-  known TODO.
-- **Motor constants:** `Controller.cpp` hard-codes `motor_l = 1 mH` and
-  `motor_flux = 0.67 mWb` with `TODO! Find motor L/flux`.
+  known TODO. The 0.01 lowpass alphas were tuned at the old 1-1.5 kHz rate; at
+  10 kHz the same alpha gives a ~7-10× higher cutoff, so retune them if velocity
+  noise or phase lag matters.
+- **Motor constants:** `Controller.cpp` currently hard-codes
+  `motor_r = 39 mΩ`, `motor_l = 16 µH`, `motor_flux = 2.92 mWb`; verify against
+  the motor before relying on them.
 - **CascadingPID is dead code in the active path:** it is constructed but
   `compute()` is never called. It takes `drivingMode` plus a `CascadePidValues`
   struct (setpoints/feedback) as arguments and has no GVM access. `drivingMode`
@@ -577,6 +632,27 @@ Match the surrounding code rather than imposing a new style.
   workarounds. Preserve that style; do not strip comments as cleanup.
 - Keep the hot path allocation-free. No `new`, `malloc`, `std::string`, blocking
   waits, or per-iteration logging in `FOCTask::update()`.
+- **Hot-path math gotchas:** avoid `std::fmod` (`fmodf` pulls in fdlibm and cost
+  ~35 µs), avoid double constants such as `M_PI` (soft-double calls on the S3),
+  and avoid full-range `sinf`/`cosf` (they run `__kernel_rem_pio2f`). Use the
+  bounded `wrapAngle` helpers in `FOCTask.cpp` and `fastSinCos` in `Controller.cpp`.
+- **Measure before/after hot-path changes.** `FOCTask.cpp` has a compile-time
+  `FOC_PROFILE` macro that prints per-stage avg/max timings plus core ID and
+  effective MHz over UART. It must be `0` for normal builds. At the 100 µs period
+  the profiled loop is ~32 µs average / ~47 µs max: encoder ~15 µs, state
+  ~3-4 µs, ADC ~3-5 µs, ctrl/pwm ~2 µs. The profiler itself adds ~6-7 µs, and
+  maxima are typically 2-3x the averages.
+- **The core-1 hot path is in IRAM.** `FOCTask::update`, `Controller::update` and
+  its helpers, `PI_Reg::update`, `LowpassFilter::update`,
+  `StateEstimation::estimate`, `MCPWMDriver::set_duty`,
+  `AS5047P::pipeline_read_angle`/`_transfer`, and `SPIBase::polling_transmit` use
+  `IRAM_ATTR`. On the IDF side, `CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y`,
+  `CONFIG_FREERTOS_IN_IRAM=y` (required by `CONFIG_SPI_MASTER_IN_IRAM=y`),
+  `CONFIG_SPI_MASTER_IN_IRAM=y`, `CONFIG_RINGBUF_IN_IRAM=y`, and
+  `CONFIG_ADC_CONTINUOUS_ISR_IRAM_SAFE=y` keep the SPI/ringbuf/MCPWM paths out
+  of flash. The generated GVM scalar accessors are in IRAM too; GVM `Buffer`
+  accessors and `adc_continuous_read()` remain flash-resident. Keep new
+  per-iteration functions in IRAM.
 - A new component needs its own `CMakeLists.txt` and an entry in the consumer's
   `REQUIRES` list.
 
