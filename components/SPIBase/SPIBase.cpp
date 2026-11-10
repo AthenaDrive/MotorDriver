@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "SPIBase.hpp"
+#include "esp_attr.h"
 #include "esp_log.h"
 
 static const char *TAG = "SPIBase";
@@ -138,11 +139,11 @@ esp_err_t SPIBase::remove_device(spi_device_handle_t handle) {
     return spi_bus_remove_device(handle);
 }
 
-esp_err_t SPIBase::transmit(spi_device_handle_t dev, spi_transaction_t *trans) {
+IRAM_ATTR esp_err_t SPIBase::transmit(spi_device_handle_t dev, spi_transaction_t *trans) {
     return spi_device_transmit(dev, trans);
 }
 
-esp_err_t SPIBase::polling_transmit(spi_device_handle_t dev, spi_transaction_t *trans) {
+IRAM_ATTR esp_err_t SPIBase::polling_transmit(spi_device_handle_t dev, spi_transaction_t *trans) {
     return spi_device_polling_transmit(dev, trans);
 }
 
