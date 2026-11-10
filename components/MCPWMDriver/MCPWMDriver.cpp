@@ -1,5 +1,6 @@
 #include "MCPWMDriver.hpp"
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_check.h"
 
@@ -15,6 +16,7 @@ MCPWMDriver::MCPWMDriver()
     : _timer(nullptr)
     , _period_ticks(0)
     , _peak_ticks(0)
+    , _ticks_per_percent(0.0f)
     , _initialized(false) {
     _channels[0] = {};
     _channels[1] = {};
@@ -35,6 +37,8 @@ esp_err_t MCPWMDriver::init(uint32_t freq_hz, uint32_t resolution_hz,
 
     _period_ticks = resolution_hz / freq_hz;
     _peak_ticks = _period_ticks / 2;
+    // Percent -> ticks is on the hot path; do the division once.
+    _ticks_per_percent = static_cast<float>(_peak_ticks) / 100.0f;
 
     mcpwm_timer_config_t timer_cfg = {
         .group_id = 0,
@@ -104,13 +108,14 @@ esp_err_t MCPWMDriver::init(uint32_t freq_hz, uint32_t resolution_hz,
     return ESP_OK;
 }
 
-esp_err_t MCPWMDriver::set_duty(Channel ch, float percent) {
+IRAM_ATTR esp_err_t MCPWMDriver::set_duty(Channel ch, float percent) {
     if (!_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
     if (percent < 0.0f) percent = 0.0f;
     if (percent > 100.0f) percent = 100.0f;
-    uint32_t cmp = (uint32_t)(_peak_ticks * percent / 100.0f);
+    uint32_t cmp = (uint32_t)(_ticks_per_percent * percent);
+    if (cmp > _peak_ticks) cmp = _peak_ticks;
     return mcpwm_comparator_set_compare_value(_channels[ch].cmpr, cmp);
 }
 

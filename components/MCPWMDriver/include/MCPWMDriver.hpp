@@ -35,5 +35,6 @@ private:
     ChannelCtx _channels[3];
     uint32_t _period_ticks;
     uint32_t _peak_ticks;
+    float _ticks_per_percent;
     bool _initialized;
 };
