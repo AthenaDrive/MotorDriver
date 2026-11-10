@@ -2,13 +2,38 @@
 #include "GlobalVariableManager.hpp"
 
 #include <cmath>
+#include <cstdio>
+
+#include "esp_attr.h"
+#include "esp_cpu.h"
+#include "esp_task.h"
+
+// --- Temporary FOC loop profiler ------------------------------------------
+// Set to 1 to print per-stage timings over the serial console about once per
+// second. Leave at 0 for normal builds; the extra timestamps cost a few us.
+#define FOC_PROFILE 0
+#if FOC_PROFILE
+static uint32_t profLoops = 0;
+static uint32_t profEncSum = 0, profEncMax = 0;
+static uint32_t profStateSum = 0, profStateMax = 0;
+static uint32_t profPrepSum = 0, profPrepMax = 0;
+static uint32_t profAdcSum = 0, profAdcMax = 0;
+static uint32_t profCtrlSum = 0, profCtrlMax = 0;
+static uint32_t profPwmSum = 0, profPwmMax = 0;
+static uint32_t profGvmSum = 0, profGvmMax = 0;
+static uint32_t profTotalSum = 0, profTotalMax = 0;
+static uint64_t profCycleSum = 0;
+#endif
 
 FOCTask::FOCTask(FOCTaskConfig &config)
     : _config(config),
-    _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI),
-    _encoder(_spi, _config.cAS5047P_CS),
+    // The encoder and DRV8320S transfers are 16-bit. With DMA enabled the SPI
+    // driver allocates and copies bounce buffers for every transaction, which
+    // costs more than the transfer itself. Use the CPU FIFO instead.
+    _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI, SPI_DMA_DISABLED),
+    _encoder(_spi, _config.cAS5047P_CS, 10000000),
     _drv(_spi, _config.cDRV8320S_CS, 1, 500000),
-    _controller({1.0, 0.0, 1.0, 0.0, 10.0, 10.0}),
+    _controller({0.1, 0.0, 0.1, 0.0, 10.0, 10.0}),
     _cascadePID({1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}),
     _prevTime(esp_timer_get_time()) {
 }
@@ -48,6 +73,13 @@ void FOCTask::begin() {
     // Board v3: 1 mOhm phase shunts with INA241A3 (50 V/V), mid-supply reference.
     ESP_ERROR_CHECK(_adc.init(0.001f, 50.0f, 1.65f));
 
+    // Run the control loop on core 1. Core 0 hosts the four Ethernet tasks and
+    // the esp_timer task, so keeping FOC off it removes most of the scheduling
+    // jitter. The timer callback below only wakes this task.
+    BaseType_t taskCreated = xTaskCreatePinnedToCore(
+        taskLoop, "foc", 8192, this, ESP_TASK_TIMER_PRIO, &_taskHandle, 1);
+    ESP_ERROR_CHECK(taskCreated == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+
     esp_timer_handle_t focTimer;
     esp_timer_create_args_t timerArgs = {
         .callback = taskEntry,
@@ -58,9 +90,11 @@ void FOCTask::begin() {
     };
 
     esp_timer_create(&timerArgs, &focTimer);
-    // TODO!
-    // Currently slower than 50us, just for debug. Also need optimizing, current peaks at 800+ us.
-    esp_timer_start_periodic(focTimer, 1000);
+    // 100 us (10 kHz). With the IRAM pass and FOC_PROFILE 0 the loop is roughly
+    // 25-26 us average / ~47 us max, so about half the period is free. The
+    // startup state machine and PI integrator count iterations rather than
+    // time; retune them if the period changes again.
+    esp_timer_start_periodic(focTimer, 100);
 }
 
 void FOCTask::initializeDriver() {
@@ -107,19 +141,26 @@ void FOCTask::applyAlignmentVoltage() {
     applyVoltageVector(0.0f);
 }
 
-float constrain(float val, float minV, float maxV) {
+IRAM_ATTR float constrain(float val, float minV, float maxV) {
     if (val > maxV) { return maxV; }
     if (val < minV) { return minV; }
     return val;
 }
 
-// Fold an angle into [0, 2*pi). Unlike a bare fmod this also handles negative
-// inputs, which fmod leaves negative, and NaN-safe it stays out of the way of
-// sin/cos since only periodicity matters.
+// Fold an angle into [0, 2*pi). The angles used here come from a single-turn
+// encoder times the pole-pair count, so they are bounded to a few turns.
+// fmodf is surprisingly expensive (it pulls in the full fdlibm path), so do
+// the reduction with a float->int conversion instead. Entering values outside
+// roughly +-1e10 would overflow the int; the FOC loop never produces those.
 static inline float wrapAngle(float a) {
-    a = std::fmod(a, GlobalVariableManager::TWO_PI);
+    constexpr float TWO_PI_F = GlobalVariableManager::TWO_PI;
+    constexpr float INV_TWO_PI = 0.15915494309189535f;
+    const int turns = static_cast<int>(a * INV_TWO_PI);
+    a -= static_cast<float>(turns) * TWO_PI_F;
     if (a < 0.0f) {
-        a += GlobalVariableManager::TWO_PI;
+        a += TWO_PI_F;
+    } else if (a >= TWO_PI_F) {
+        a -= TWO_PI_F;
     }
     return a;
 }
@@ -129,32 +170,49 @@ static inline float wrapAngle(float a) {
 // is the wrong tool here: it returns [0, 2*pi), so a step of -0.0004 comes
 // back as 6.2828 and looks like a full reverse revolution.
 static inline float wrapAngleSigned(float a) {
-    a = std::fmod(a, GlobalVariableManager::TWO_PI);
-    if (a > GlobalVariableManager::PI) {
-        a -= GlobalVariableManager::TWO_PI;
-    } else if (a < -GlobalVariableManager::PI) {
-        a += GlobalVariableManager::TWO_PI;
+    constexpr float TWO_PI_F = GlobalVariableManager::TWO_PI;
+    constexpr float PI_F = GlobalVariableManager::PI;
+    constexpr float INV_TWO_PI = 0.15915494309189535f;
+    const int turns = static_cast<int>(a * INV_TWO_PI + (a >= 0.0f ? 0.5f : -0.5f));
+    a -= static_cast<float>(turns) * TWO_PI_F;
+    if (a > PI_F) {
+        a -= TWO_PI_F;
+    } else if (a < -PI_F) {
+        a += TWO_PI_F;
     }
     return a;
 }
 
-void FOCTask::update() {
+IRAM_ATTR void FOCTask::update() {
 
     int64_t t0 = esp_timer_get_time();
+#if FOC_PROFILE
+    const uint32_t cpuCycles0 = esp_cpu_get_cycle_count();
+#endif
     // Yes, i know dt is not in seconds.
     // Dont really care, just adjust PID tune.
     float dt = static_cast<float>(t0 - _prevTime);
     _prevTime = t0;
 
+#if FOC_PROFILE
+    int64_t tEnc = 0, tState = 0, tPrep = 0, tAdc = 0, tCtrl = 0, tPwm = 0, tGvm = 0;
+#endif
+
     float angle, cumulativeAngle, velocity, acceleration;
     if (_encoder.pipeline_read_angle(angle, true) != ESP_OK) {
         return;
     }
+#if FOC_PROFILE
+    tEnc = esp_timer_get_time();
+#endif
 
     _stateEstimation.estimate(angle, cumulativeAngle, velocity, acceleration);
     globalVariableManager.setAngle(cumulativeAngle);
     globalVariableManager.setVelocity(velocity);
     globalVariableManager.setAcceleration(acceleration);
+#if FOC_PROFILE
+    tState = esp_timer_get_time();
+#endif
 
     uint16_t drv_fault = 0;
     uint16_t drv_vgs = 0;
@@ -375,17 +433,27 @@ void FOCTask::update() {
             CURRENT_BASELINE_LOOPS -= 1;
             if (CURRENT_BASELINE_LOOPS < CURRENT_BASELINE_SETTLE) {
                 int mvPhaseA, mvPhaseB, mvPhaseC;
-                _adc.read_voltage(ADCOneshot::CHANNEL_A, mvPhaseA);
-                _adc.read_voltage(ADCOneshot::CHANNEL_B, mvPhaseB);
-                _adc.read_voltage(ADCOneshot::CHANNEL_C, mvPhaseC);
-
-                sumPhaseOffsetA += mvPhaseA;
-                sumPhaseOffsetB += mvPhaseB;
-                sumPhaseOffsetC += mvPhaseC;
-                numCurrentReadings++;
+                if (_adc.read_voltage_all(mvPhaseA, mvPhaseB, mvPhaseC) == ESP_OK) {
+                    sumPhaseOffsetA += mvPhaseA;
+                    sumPhaseOffsetB += mvPhaseB;
+                    sumPhaseOffsetC += mvPhaseC;
+                    numCurrentReadings++;
+                }
             }
 
             if (CURRENT_BASELINE_LOOPS == 0) {
+                if (numCurrentReadings == 0) {
+                    // The ADC runs continuously, so this means it never
+                    // produced a complete set of samples. Do not compute
+                    // offsets from nothing; retry the measurement instead.
+                    printf("FOC: no phase-current samples, retrying offset measurement.\n");
+                    CURRENT_BASELINE_LOOPS = 10000;
+                    sumPhaseOffsetA = 0;
+                    sumPhaseOffsetB = 0;
+                    sumPhaseOffsetC = 0;
+                    return;
+                }
+
                 // Offsets are captured with the bridge braking. Return to the
                 // neutral 50% state before the FOC loop takes over.
                 _pwm.set_duty(MCPWMDriver::CHANNEL_A, 50.0f);
@@ -413,17 +481,29 @@ void FOCTask::update() {
     const float elPos = wrapAngle(angle * numPolePairs);
 
     float iqRef = globalVariableManager.getTorqueSetpoint();
+#if FOC_PROFILE
+    tPrep = esp_timer_get_time();
+#endif
 
     int mvPhaseA, mvPhaseB, mvPhaseC;
-    _adc.read_voltage(ADCOneshot::CHANNEL_A, mvPhaseA);
-    _adc.read_voltage(ADCOneshot::CHANNEL_B, mvPhaseB);
-    _adc.read_voltage(ADCOneshot::CHANNEL_C, mvPhaseC);
+    if (_adc.read_voltage_all(mvPhaseA, mvPhaseB, mvPhaseC) != ESP_OK) {
+        // No complete set of phase-current samples yet. Skip this iteration
+        // rather than running the current loop on stale or zero values.
+        return;
+    }
+#if FOC_PROFILE
+    tAdc = esp_timer_get_time();
+#endif
 
     // Gain: 50V/V
     // Shunt: 1mOhm
-    float currentA = lowpassCurrentA.update(static_cast<float>(mvPhaseA - phaseOffsetA) / 50.0f);
-    float currentB = lowpassCurrentB.update(static_cast<float>(mvPhaseB - phaseOffsetB) / 50.0f);
-    float currentC = lowpassCurrentC.update(static_cast<float>(mvPhaseC - phaseOffsetC) / 50.0f);
+    // float currentA = lowpassCurrentA.update(static_cast<float>(mvPhaseA - phaseOffsetA) / 50.0f);
+    // float currentB = lowpassCurrentB.update(static_cast<float>(mvPhaseB - phaseOffsetB) / 50.0f);
+    // float currentC = lowpassCurrentC.update(static_cast<float>(mvPhaseC - phaseOffsetC) / 50.0f);
+
+    float currentA = static_cast<float>(mvPhaseA - phaseOffsetA) / 50.0f;
+    float currentB = static_cast<float>(mvPhaseB - phaseOffsetB) / 50.0f;
+    float currentC = static_cast<float>(mvPhaseC - phaseOffsetC) / 50.0f;
 
     // Phase B is still measured and published through the GVM, but the FOC
     // controller can use only A and C and derive the balanced B current.
@@ -432,6 +512,10 @@ void FOCTask::update() {
 
     float omegaE = velocity * numPolePairs;
     _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, currentA, currentBForFoc);
+    // _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, 0.0f, 0.0f);
+#if FOC_PROFILE
+    tCtrl = esp_timer_get_time();
+#endif
 
     float maxVal = 30.0f;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
@@ -445,23 +529,138 @@ void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_A, _out.phaseA);
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
+#if FOC_PROFILE
+    tPwm = esp_timer_get_time();
+#endif
 
     globalVariableManager.setIa(currentA);
     globalVariableManager.setIb(currentB);
     globalVariableManager.setIc(currentC);
+#if FOC_PROFILE
+    tGvm = esp_timer_get_time();
+#endif
 
     // globalVariableManager.setIa(static_cast<float>(mvPhaseA - phaseOffsetA));
     // globalVariableManager.setIb(static_cast<float>(mvPhaseB - phaseOffsetB));
     // globalVariableManager.setIc(static_cast<float>(mvPhaseC - phaseOffsetC));
 
     int64_t t1 = esp_timer_get_time();
+#if FOC_PROFILE
+    const uint32_t cpuCycles1 = esp_cpu_get_cycle_count();
+#endif
     // TODO: Add small lowpass maybe? Or rename variable
     // I know in theory the 64 bit time could overflow
     // the 32 bit, dont care, probably not going to happen.
-    globalVariableManager.setAvgLoopTimeFOC(t1 - t0);
+
+    bool USE_MAX = true;
+    if (USE_MAX) {
+        int64_t maxTime = globalVariableManager.getAvgLoopTimeFOC();
+        if ((t1 - t0) > maxTime) {
+            globalVariableManager.setAvgLoopTimeFOC(t1 - t0);
+        }
+    } else {
+        globalVariableManager.setAvgLoopTimeFOC(t1 - t0);
+    }
+
+#if FOC_PROFILE
+    const uint32_t dEnc = static_cast<uint32_t>(tEnc - t0);
+    const uint32_t dState = static_cast<uint32_t>(tState - tEnc);
+    const uint32_t dPrep = static_cast<uint32_t>(tPrep - tState);
+    const uint32_t dAdc = static_cast<uint32_t>(tAdc - tPrep);
+    const uint32_t dCtrl = static_cast<uint32_t>(tCtrl - tAdc);
+    const uint32_t dPwm = static_cast<uint32_t>(tPwm - tCtrl);
+    const uint32_t dGvm = static_cast<uint32_t>(tGvm - tPwm);
+    const uint32_t dTotal = static_cast<uint32_t>(t1 - t0);
+    const uint32_t dCycles = cpuCycles1 - cpuCycles0;
+
+    profCycleSum += dCycles;
+    profEncSum += dEnc;
+    profStateSum += dState;
+    profPrepSum += dPrep;
+    profAdcSum += dAdc;
+    profCtrlSum += dCtrl;
+    profPwmSum += dPwm;
+    profGvmSum += dGvm;
+    profTotalSum += dTotal;
+    if (dEnc > profEncMax) profEncMax = dEnc;
+    if (dState > profStateMax) profStateMax = dState;
+    if (dPrep > profPrepMax) profPrepMax = dPrep;
+    if (dAdc > profAdcMax) profAdcMax = dAdc;
+    if (dCtrl > profCtrlMax) profCtrlMax = dCtrl;
+    if (dPwm > profPwmMax) profPwmMax = dPwm;
+    if (dGvm > profGvmMax) profGvmMax = dGvm;
+    if (dTotal > profTotalMax) profTotalMax = dTotal;
+
+    profLoops++;
+    if (profLoops >= 1000) {
+        // Measure the cost of one esp_timer_get_time() call so the stage
+        // numbers above can be interpreted with the instrumentation overhead
+        // in mind.
+        const int64_t tick0 = esp_timer_get_time();
+        for (int i = 0; i < 100; i++) {
+            (void)esp_timer_get_time();
+        }
+        const int64_t tick1 = esp_timer_get_time();
+        const float tickUs = static_cast<float>(tick1 - tick0) / 100.0f;
+
+        const uint32_t miscSum = profTotalSum - profEncSum - profStateSum -
+                                 profPrepSum - profAdcSum - profCtrlSum -
+                                 profPwmSum - profGvmSum;
+
+        const float cpuMhz = static_cast<float>(profCycleSum) /
+                             static_cast<float>(profTotalSum);
+
+        printf("FOC prof [core %d] us avg/max over %lu: enc %lu/%lu state %lu/%lu prep %lu/%lu "
+               "adc %lu/%lu ctrl %lu/%lu pwm %lu/%lu gvm %lu/%lu misc %lu total %lu/%lu "
+               "tick %.2f MHz %.1f\n",
+               xPortGetCoreID(),
+               static_cast<unsigned long>(profLoops),
+               static_cast<unsigned long>(profEncSum / profLoops),
+               static_cast<unsigned long>(profEncMax),
+               static_cast<unsigned long>(profStateSum / profLoops),
+               static_cast<unsigned long>(profStateMax),
+               static_cast<unsigned long>(profPrepSum / profLoops),
+               static_cast<unsigned long>(profPrepMax),
+               static_cast<unsigned long>(profAdcSum / profLoops),
+               static_cast<unsigned long>(profAdcMax),
+               static_cast<unsigned long>(profCtrlSum / profLoops),
+               static_cast<unsigned long>(profCtrlMax),
+               static_cast<unsigned long>(profPwmSum / profLoops),
+               static_cast<unsigned long>(profPwmMax),
+               static_cast<unsigned long>(profGvmSum / profLoops),
+               static_cast<unsigned long>(profGvmMax),
+               static_cast<unsigned long>(miscSum / profLoops),
+               static_cast<unsigned long>(profTotalSum / profLoops),
+               static_cast<unsigned long>(profTotalMax),
+               tickUs, cpuMhz);
+
+        profLoops = 0;
+        profEncSum = profEncMax = 0;
+        profStateSum = profStateMax = 0;
+        profPrepSum = profPrepMax = 0;
+        profAdcSum = profAdcMax = 0;
+        profCtrlSum = profCtrlMax = 0;
+        profPwmSum = profPwmMax = 0;
+        profGvmSum = profGvmMax = 0;
+        profTotalSum = profTotalMax = 0;
+        profCycleSum = 0;
+    }
+#endif
 }
 
 void FOCTask::taskEntry(void *pvParameters) {
     FOCTask *focTask = static_cast<FOCTask *>(pvParameters);
-    focTask->update();
+    // Overwrite rather than increment, so a late loop cannot queue up a burst
+    // of back-to-back control iterations.
+    xTaskNotify(focTask->_taskHandle, 1, eSetValueWithOverwrite);
+}
+
+void FOCTask::taskLoop(void *pvParameters) {
+    FOCTask *focTask = static_cast<FOCTask *>(pvParameters);
+    printf("FOC: control task on core %d, priority %u.\n",
+           xPortGetCoreID(), (unsigned)uxTaskPriorityGet(nullptr));
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        focTask->update();
+    }
 }

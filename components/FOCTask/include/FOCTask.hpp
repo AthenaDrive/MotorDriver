@@ -8,7 +8,7 @@
 #include "esp_timer.h"
 
 #include "MCPWMDriver.hpp"
-#include "ADCOneshot.hpp"
+#include "ADCContinuous.hpp"
 #include "Controller.hpp"
 #include "StateEstimation.hpp"
 #include "CascadingPID.hpp"
@@ -65,12 +65,17 @@ private:
     SPIBase _spi;
     MCPWMDriver _pwm;
     AS5047P _encoder;
-    ADCOneshot _adc;
+    ADCContinuous _adc;
     StateEstimation _stateEstimation;
     DRV8320S _drv;
     Controller _controller;
     CascadingPID _cascadePID;
     Output _out;
+
+    // The control loop runs in its own task on core 1. The esp_timer callback
+    // only notifies this task; the esp_timer task itself is pinned to core 0
+    // together with the Ethernet tasks.
+    TaskHandle_t _taskHandle = nullptr;
 
     int64_t _prevTime;
 
@@ -178,5 +183,6 @@ private:
     bool _reversePhaseSequence = false;
 
     static void taskEntry(void *pvParameters);
+    static void taskLoop(void *pvParameters);
 };
 
