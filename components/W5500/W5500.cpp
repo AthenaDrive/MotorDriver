@@ -64,6 +64,10 @@ esp_err_t W5500::init() {
 
     {
         eth_mac_config_t mac_cfg = ETH_MAC_DEFAULT_CONFIG();
+        // Keep the W5500 RX tasks on the core that created the MAC (core 0,
+        // the comms core). Without this they are unpinned and can migrate to
+        // core 1, where they would evict the FOC control loop from cache.
+        mac_cfg.flags |= ETH_MAC_FLAG_PIN_TO_CORE;
         _mac = esp_eth_mac_new_w5500(&w5500_cfg, &mac_cfg);
     }
     if (!_mac) {
