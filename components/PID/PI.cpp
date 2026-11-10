@@ -1,11 +1,12 @@
 
 #include "PI.hpp"
+#include "esp_attr.h"
 
 PI_Reg::PI_Reg(float kp, float ki)
     : _kp(kp), _ki(ki){
 }
 
-float PI_Reg::update(float error) {
+IRAM_ATTR float PI_Reg::update(float error) {
     _integral += error;
 
     return _kp * error + _ki * _integral;
