@@ -283,5 +283,6 @@ static void responder_task(void *arg) {
 void discovery_start_responder(int my_position) {
     ResponderArg *arg = new ResponderArg;
     arg->my_position = my_position;
-    xTaskCreate(responder_task, "disc_resp", 4096, arg, 8, nullptr);
+    // Keep discovery on the comms core (0); core 1 is reserved for FOC.
+    xTaskCreatePinnedToCore(responder_task, "disc_resp", 4096, arg, 8, nullptr, 0);
 }
