@@ -3,15 +3,28 @@
 
 #include <cmath>
 
+#include "esp_attr.h"
+
+// Keep the wrap in single precision. M_PI is a double, and on the ESP32-S3
+// that silently turns every comparison/subtraction into a soft-double call
+// (__gtdf2/__subdf3/...), which dominated this function's runtime.
+static constexpr float PI_F = 3.14159265358979323846f;
+static constexpr float TWO_PI_F = 6.28318530717958647692f;
+
 StateEstimation::StateEstimation() {}
 
-esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cumulativeAngle, float &velocity, float &acceleration) {
+IRAM_ATTR esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cumulativeAngle, float &velocity, float &acceleration) {
 
 
     float delta = encoderAngleRead - _prev_angle;
 
-    while (delta > M_PI)  delta -= 2.0f * M_PI;
-    while (delta < -M_PI) delta += 2.0f * M_PI;
+    // One step at 10 kHz can never exceed half a mechanical turn; the range
+    // check also covers the first sample, where _prev_angle is still zero.
+    if (delta > PI_F) {
+        delta -= TWO_PI_F;
+    } else if (delta < -PI_F) {
+        delta += TWO_PI_F;
+    }
 
     int64_t now = esp_timer_get_time();
     if (_has_prev_read && now > _prev_time_us) {
