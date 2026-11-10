@@ -1,5 +1,6 @@
 #include "AS5047P.hpp"
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -15,7 +16,7 @@ AS5047P::AS5047P(SPIBase &spi, uint8_t cs_gpio, int clock_speed_hz)
     , _initialized(false)
     , _pipeline_active(false) {}
 
-uint16_t AS5047P::_apply_parity(uint16_t word) {
+IRAM_ATTR uint16_t AS5047P::_apply_parity(uint16_t word) {
     uint16_t w = word & 0x7FFF;
     w ^= w >> 8;
     w ^= w >> 4;
@@ -33,9 +34,13 @@ float AS5047P::_raw_to_degrees(uint16_t raw) {
     return (float)(raw & ENCODER_DATA_MASK) * 360.0f / 16384.0f;
 }
 
-float AS5047P::_raw_to_radians(uint16_t raw)
+IRAM_ATTR float AS5047P::_raw_to_radians(uint16_t raw)
 {
-    return (float)(raw & ENCODER_DATA_MASK) * (2.0f * M_PI) / 16384.0f;
+    // Keep this single precision. M_PI is a double, and the resulting
+    // __extendsfdf2/__muldf3/__truncdfsf2 calls made the encoder read one of
+    // the most expensive stages in the FOC loop.
+    constexpr float RAD_PER_COUNT = (2.0f * 3.14159265358979323846f) / 16384.0f;
+    return (float)(raw & ENCODER_DATA_MASK) * RAD_PER_COUNT;
 }
 
 esp_err_t AS5047P::init() {
@@ -59,7 +64,15 @@ esp_err_t AS5047P::init() {
 
     _initialized = true;
     _pipeline_active = false;
-    ESP_LOGI(TAG, "AS5047P initialized (CS:%d)", _cs_gpio);
+
+    // Log the actual clock the driver picked. If the encoder stage is slow,
+    // this separates wire time from IDF transaction overhead.
+    int actual_freq_khz = 0;
+    if (spi_device_get_actual_freq(_dev, &actual_freq_khz) == ESP_OK) {
+        ESP_LOGI(TAG, "AS5047P initialized (CS:%d, SPI %d kHz)", _cs_gpio, actual_freq_khz);
+    } else {
+        ESP_LOGI(TAG, "AS5047P initialized (CS:%d)", _cs_gpio);
+    }
     return ESP_OK;
 }
 
@@ -76,7 +89,7 @@ esp_err_t AS5047P::deinit() {
     return ESP_OK;
 }
 
-esp_err_t AS5047P::_transfer(uint16_t tx, uint16_t &rx) {
+IRAM_ATTR esp_err_t AS5047P::_transfer(uint16_t tx, uint16_t &rx) {
     if (!_initialized || !_dev) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -143,7 +156,7 @@ esp_err_t AS5047P::pipeline_start() {
     return ret;
 }
 
-esp_err_t AS5047P::pipeline_read_angle(float &radians, bool with_daec) {
+IRAM_ATTR esp_err_t AS5047P::pipeline_read_angle(float &radians, bool with_daec) {
     if (!_pipeline_active) {
         esp_err_t ret = pipeline_start();
         if (ret != ESP_OK) return ret;
