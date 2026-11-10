@@ -63,7 +63,7 @@ extern "C" void app_main(void) {
         .cDRV8320S_nFAULT = DRV8320S_nFAULT,
         .cMinBusVoltage = 9.0f,
         .cStartupSettleMs = 500,
-        .cUsePhaseBForFoc = true, // B current is still published, but FOC uses A and C.
+        .cUsePhaseBForFoc = true, // Use the real phase A and B currents; C is still published.
     };
     FOCTask focTask{focConfig};
     focTask.begin();
