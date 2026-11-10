@@ -103,7 +103,9 @@ with open(f"{path}/{fileName}.cpp", "w+") as source:
     
     source.writelines([
         '#include "GlobalVariableManager.hpp"\n',
+        "#include <bit>\n",
         "#include <cstring>\n",
+        '#include "esp_attr.h"\n',
         "\n",
         "GlobalVariableManager globalVariableManager;\n"
         "\n",
@@ -121,19 +123,14 @@ with open(f"{path}/{fileName}.cpp", "w+") as source:
     ])
 
     source.writelines([
-        "void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {\n",
+        "IRAM_ATTR void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {\n",
         '    static_assert(sizeof(float) == sizeof(uint32_t), "float must be 32-bit");\n',
-        "    uint32_t bits = 0;\n",
-        "    std::memcpy(&bits, &value, sizeof(bits));\n",
-        "    atomicValue.store(bits, std::memory_order_relaxed);\n",
+        "    atomicValue.store(std::bit_cast<uint32_t>(value), std::memory_order_relaxed);\n",
         "}\n",
         "\n",
-        "float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue) {\n",
+        "IRAM_ATTR float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue) {\n",
         '    static_assert(sizeof(float) == sizeof(uint32_t), "float must be 32-bit");\n',
-        "    uint32_t bits = atomicValue.load(std::memory_order_relaxed);\n",
-        "    float value = 0.0f;\n",
-        "    std::memcpy(&value, &bits, sizeof(value));\n",
-        "    return value;\n",
+        "    return std::bit_cast<float>(atomicValue.load(std::memory_order_relaxed));\n",
         "}\n"
     ])
 
@@ -177,11 +174,11 @@ with open(f"{path}/{fileName}.cpp", "w+") as source:
                 storeLine = f"_{var[1]}.store(value, std::memory_order_relaxed);\n"
 
             source.writelines([
-                f"{var[0]} GlobalVariableManager::get{name}() {{\n",
+                f"IRAM_ATTR {var[0]} GlobalVariableManager::get{name}() {{\n",
                 "    " + loadLine,
                 "}\n",
                 "\n",
-                f"void GlobalVariableManager::set{name}({var[0]} value) {{\n",
+                f"IRAM_ATTR void GlobalVariableManager::set{name}({var[0]} value) {{\n",
                 "    " + storeLine,
                 "}\n"
             ])

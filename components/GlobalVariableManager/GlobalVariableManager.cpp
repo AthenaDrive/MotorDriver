@@ -6,7 +6,9 @@ DO NOT MODIFY THIS FILE.
 */
 
 #include "GlobalVariableManager.hpp"
+#include <bit>
 #include <cstring>
+#include "esp_attr.h"
 
 GlobalVariableManager globalVariableManager;
 
@@ -63,25 +65,20 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_tcpCommandDebugFloat3, 0.0f);
 }
 
-void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {
+IRAM_ATTR void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {
     static_assert(sizeof(float) == sizeof(uint32_t), "float must be 32-bit");
-    uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
-    atomicValue.store(bits, std::memory_order_relaxed);
+    atomicValue.store(std::bit_cast<uint32_t>(value), std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue) {
+IRAM_ATTR float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue) {
     static_assert(sizeof(float) == sizeof(uint32_t), "float must be 32-bit");
-    uint32_t bits = atomicValue.load(std::memory_order_relaxed);
-    float value = 0.0f;
-    std::memcpy(&value, &bits, sizeof(value));
-    return value;
+    return std::bit_cast<float>(atomicValue.load(std::memory_order_relaxed));
 }
-uint32_t GlobalVariableManager::getUdpAsPeripheralHeader() {
+IRAM_ATTR uint32_t GlobalVariableManager::getUdpAsPeripheralHeader() {
     return _udpAsPeripheralHeader.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpAsPeripheralHeader(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpAsPeripheralHeader(uint32_t value) {
     _udpAsPeripheralHeader.store(value, std::memory_order_relaxed);
 }
 
@@ -181,651 +178,651 @@ uint32_t GlobalVariableManager::setTcpFromControllerBuffer(const uint8_t* value,
     return capacity;
 }
 
-uint32_t GlobalVariableManager::getNumPolePairs() {
+IRAM_ATTR uint32_t GlobalVariableManager::getNumPolePairs() {
     return _numPolePairs.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setNumPolePairs(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setNumPolePairs(uint32_t value) {
     _numPolePairs.store(value, std::memory_order_relaxed);
 }
 
-bool GlobalVariableManager::getWantedCalibrationMode() {
+IRAM_ATTR bool GlobalVariableManager::getWantedCalibrationMode() {
     return _wantedCalibrationMode.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setWantedCalibrationMode(bool value) {
+IRAM_ATTR void GlobalVariableManager::setWantedCalibrationMode(bool value) {
     _wantedCalibrationMode.store(value, std::memory_order_relaxed);
 }
 
-bool GlobalVariableManager::getActualCalibrationMode() {
+IRAM_ATTR bool GlobalVariableManager::getActualCalibrationMode() {
     return _actualCalibrationMode.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setActualCalibrationMode(bool value) {
+IRAM_ATTR void GlobalVariableManager::setActualCalibrationMode(bool value) {
     _actualCalibrationMode.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getAngle() {
+IRAM_ATTR float GlobalVariableManager::getAngle() {
     return atomic_load_float(_angle);
 }
 
-void GlobalVariableManager::setAngle(float value) {
+IRAM_ATTR void GlobalVariableManager::setAngle(float value) {
     atomic_store_float(_angle, value);
 }
 
-float GlobalVariableManager::getVelocity() {
+IRAM_ATTR float GlobalVariableManager::getVelocity() {
     return atomic_load_float(_velocity);
 }
 
-void GlobalVariableManager::setVelocity(float value) {
+IRAM_ATTR void GlobalVariableManager::setVelocity(float value) {
     atomic_store_float(_velocity, value);
 }
 
-float GlobalVariableManager::getAcceleration() {
+IRAM_ATTR float GlobalVariableManager::getAcceleration() {
     return atomic_load_float(_acceleration);
 }
 
-void GlobalVariableManager::setAcceleration(float value) {
+IRAM_ATTR void GlobalVariableManager::setAcceleration(float value) {
     atomic_store_float(_acceleration, value);
 }
 
-float GlobalVariableManager::getTargetTorque() {
+IRAM_ATTR float GlobalVariableManager::getTargetTorque() {
     return atomic_load_float(_targetTorque);
 }
 
-void GlobalVariableManager::setTargetTorque(float value) {
+IRAM_ATTR void GlobalVariableManager::setTargetTorque(float value) {
     atomic_store_float(_targetTorque, value);
 }
 
-float GlobalVariableManager::getAvgVelocity() {
+IRAM_ATTR float GlobalVariableManager::getAvgVelocity() {
     return atomic_load_float(_avgVelocity);
 }
 
-void GlobalVariableManager::setAvgVelocity(float value) {
+IRAM_ATTR void GlobalVariableManager::setAvgVelocity(float value) {
     atomic_store_float(_avgVelocity, value);
 }
 
-float GlobalVariableManager::getAvgAcceleration() {
+IRAM_ATTR float GlobalVariableManager::getAvgAcceleration() {
     return atomic_load_float(_avgAcceleration);
 }
 
-void GlobalVariableManager::setAvgAcceleration(float value) {
+IRAM_ATTR void GlobalVariableManager::setAvgAcceleration(float value) {
     atomic_store_float(_avgAcceleration, value);
 }
 
-float GlobalVariableManager::getAvgTargetTorque() {
+IRAM_ATTR float GlobalVariableManager::getAvgTargetTorque() {
     return atomic_load_float(_avgTargetTorque);
 }
 
-void GlobalVariableManager::setAvgTargetTorque(float value) {
+IRAM_ATTR void GlobalVariableManager::setAvgTargetTorque(float value) {
     atomic_store_float(_avgTargetTorque, value);
 }
 
-uint32_t GlobalVariableManager::getAvgLoopTimeFOC() {
+IRAM_ATTR uint32_t GlobalVariableManager::getAvgLoopTimeFOC() {
     return _avgLoopTimeFOC.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setAvgLoopTimeFOC(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setAvgLoopTimeFOC(uint32_t value) {
     _avgLoopTimeFOC.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getAvgLoopTimeSecondary() {
+IRAM_ATTR uint32_t GlobalVariableManager::getAvgLoopTimeSecondary() {
     return _avgLoopTimeSecondary.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setAvgLoopTimeSecondary(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setAvgLoopTimeSecondary(uint32_t value) {
     _avgLoopTimeSecondary.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getErrorFlags() {
+IRAM_ATTR uint32_t GlobalVariableManager::getErrorFlags() {
     return _errorFlags.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setErrorFlags(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setErrorFlags(uint32_t value) {
     _errorFlags.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getBoardState() {
+IRAM_ATTR uint32_t GlobalVariableManager::getBoardState() {
     return _boardState.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setBoardState(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setBoardState(uint32_t value) {
     _boardState.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getLedStatus() {
+IRAM_ATTR uint32_t GlobalVariableManager::getLedStatus() {
     return _ledStatus.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setLedStatus(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setLedStatus(uint32_t value) {
     _ledStatus.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getButtonStatus() {
+IRAM_ATTR uint32_t GlobalVariableManager::getButtonStatus() {
     return _buttonStatus.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setButtonStatus(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setButtonStatus(uint32_t value) {
     _buttonStatus.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getBusVoltage() {
+IRAM_ATTR float GlobalVariableManager::getBusVoltage() {
     return atomic_load_float(_busVoltage);
 }
 
-void GlobalVariableManager::setBusVoltage(float value) {
+IRAM_ATTR void GlobalVariableManager::setBusVoltage(float value) {
     atomic_store_float(_busVoltage, value);
 }
 
-float GlobalVariableManager::getBusCurrent() {
+IRAM_ATTR float GlobalVariableManager::getBusCurrent() {
     return atomic_load_float(_busCurrent);
 }
 
-void GlobalVariableManager::setBusCurrent(float value) {
+IRAM_ATTR void GlobalVariableManager::setBusCurrent(float value) {
     atomic_store_float(_busCurrent, value);
 }
 
-float GlobalVariableManager::getTemperature() {
+IRAM_ATTR float GlobalVariableManager::getTemperature() {
     return atomic_load_float(_temperature);
 }
 
-void GlobalVariableManager::setTemperature(float value) {
+IRAM_ATTR void GlobalVariableManager::setTemperature(float value) {
     atomic_store_float(_temperature, value);
 }
 
-uint32_t GlobalVariableManager::getDrivingMode() {
+IRAM_ATTR uint32_t GlobalVariableManager::getDrivingMode() {
     return _drivingMode.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setDrivingMode(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setDrivingMode(uint32_t value) {
     _drivingMode.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getCurrentLimitPhase() {
+IRAM_ATTR uint32_t GlobalVariableManager::getCurrentLimitPhase() {
     return _currentLimitPhase.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setCurrentLimitPhase(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setCurrentLimitPhase(uint32_t value) {
     _currentLimitPhase.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getCurrentLimitBus() {
+IRAM_ATTR uint32_t GlobalVariableManager::getCurrentLimitBus() {
     return _currentLimitBus.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setCurrentLimitBus(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setCurrentLimitBus(uint32_t value) {
     _currentLimitBus.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getPhaseRMSVoltage() {
+IRAM_ATTR float GlobalVariableManager::getPhaseRMSVoltage() {
     return atomic_load_float(_phaseRMSVoltage);
 }
 
-void GlobalVariableManager::setPhaseRMSVoltage(float value) {
+IRAM_ATTR void GlobalVariableManager::setPhaseRMSVoltage(float value) {
     atomic_store_float(_phaseRMSVoltage, value);
 }
 
-float GlobalVariableManager::getIa() {
+IRAM_ATTR float GlobalVariableManager::getIa() {
     return atomic_load_float(_Ia);
 }
 
-void GlobalVariableManager::setIa(float value) {
+IRAM_ATTR void GlobalVariableManager::setIa(float value) {
     atomic_store_float(_Ia, value);
 }
 
-float GlobalVariableManager::getIb() {
+IRAM_ATTR float GlobalVariableManager::getIb() {
     return atomic_load_float(_Ib);
 }
 
-void GlobalVariableManager::setIb(float value) {
+IRAM_ATTR void GlobalVariableManager::setIb(float value) {
     atomic_store_float(_Ib, value);
 }
 
-float GlobalVariableManager::getIc() {
+IRAM_ATTR float GlobalVariableManager::getIc() {
     return atomic_load_float(_Ic);
 }
 
-void GlobalVariableManager::setIc(float value) {
+IRAM_ATTR void GlobalVariableManager::setIc(float value) {
     atomic_store_float(_Ic, value);
 }
 
-float GlobalVariableManager::getTorqueKp() {
+IRAM_ATTR float GlobalVariableManager::getTorqueKp() {
     return atomic_load_float(_torqueKp);
 }
 
-void GlobalVariableManager::setTorqueKp(float value) {
+IRAM_ATTR void GlobalVariableManager::setTorqueKp(float value) {
     atomic_store_float(_torqueKp, value);
 }
 
-float GlobalVariableManager::getTorqueKi() {
+IRAM_ATTR float GlobalVariableManager::getTorqueKi() {
     return atomic_load_float(_torqueKi);
 }
 
-void GlobalVariableManager::setTorqueKi(float value) {
+IRAM_ATTR void GlobalVariableManager::setTorqueKi(float value) {
     atomic_store_float(_torqueKi, value);
 }
 
-float GlobalVariableManager::getTorqueKd() {
+IRAM_ATTR float GlobalVariableManager::getTorqueKd() {
     return atomic_load_float(_torqueKd);
 }
 
-void GlobalVariableManager::setTorqueKd(float value) {
+IRAM_ATTR void GlobalVariableManager::setTorqueKd(float value) {
     atomic_store_float(_torqueKd, value);
 }
 
-float GlobalVariableManager::getTorqueLimit() {
+IRAM_ATTR float GlobalVariableManager::getTorqueLimit() {
     return atomic_load_float(_torqueLimit);
 }
 
-void GlobalVariableManager::setTorqueLimit(float value) {
+IRAM_ATTR void GlobalVariableManager::setTorqueLimit(float value) {
     atomic_store_float(_torqueLimit, value);
 }
 
-float GlobalVariableManager::getTorqueSetpoint() {
+IRAM_ATTR float GlobalVariableManager::getTorqueSetpoint() {
     return atomic_load_float(_torqueSetpoint);
 }
 
-void GlobalVariableManager::setTorqueSetpoint(float value) {
+IRAM_ATTR void GlobalVariableManager::setTorqueSetpoint(float value) {
     atomic_store_float(_torqueSetpoint, value);
 }
 
-uint32_t GlobalVariableManager::getTorqueControlFrequency() {
+IRAM_ATTR uint32_t GlobalVariableManager::getTorqueControlFrequency() {
     return _torqueControlFrequency.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTorqueControlFrequency(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTorqueControlFrequency(uint32_t value) {
     _torqueControlFrequency.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getVelocityKp() {
+IRAM_ATTR float GlobalVariableManager::getVelocityKp() {
     return atomic_load_float(_velocityKp);
 }
 
-void GlobalVariableManager::setVelocityKp(float value) {
+IRAM_ATTR void GlobalVariableManager::setVelocityKp(float value) {
     atomic_store_float(_velocityKp, value);
 }
 
-float GlobalVariableManager::getVelocityKi() {
+IRAM_ATTR float GlobalVariableManager::getVelocityKi() {
     return atomic_load_float(_velocityKi);
 }
 
-void GlobalVariableManager::setVelocityKi(float value) {
+IRAM_ATTR void GlobalVariableManager::setVelocityKi(float value) {
     atomic_store_float(_velocityKi, value);
 }
 
-float GlobalVariableManager::getVelocityKd() {
+IRAM_ATTR float GlobalVariableManager::getVelocityKd() {
     return atomic_load_float(_velocityKd);
 }
 
-void GlobalVariableManager::setVelocityKd(float value) {
+IRAM_ATTR void GlobalVariableManager::setVelocityKd(float value) {
     atomic_store_float(_velocityKd, value);
 }
 
-float GlobalVariableManager::getVelocityLimit() {
+IRAM_ATTR float GlobalVariableManager::getVelocityLimit() {
     return atomic_load_float(_velocityLimit);
 }
 
-void GlobalVariableManager::setVelocityLimit(float value) {
+IRAM_ATTR void GlobalVariableManager::setVelocityLimit(float value) {
     atomic_store_float(_velocityLimit, value);
 }
 
-float GlobalVariableManager::getVelocitySetpoint() {
+IRAM_ATTR float GlobalVariableManager::getVelocitySetpoint() {
     return atomic_load_float(_velocitySetpoint);
 }
 
-void GlobalVariableManager::setVelocitySetpoint(float value) {
+IRAM_ATTR void GlobalVariableManager::setVelocitySetpoint(float value) {
     atomic_store_float(_velocitySetpoint, value);
 }
 
-uint32_t GlobalVariableManager::getVelocityControlFrequency() {
+IRAM_ATTR uint32_t GlobalVariableManager::getVelocityControlFrequency() {
     return _velocityControlFrequency.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setVelocityControlFrequency(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setVelocityControlFrequency(uint32_t value) {
     _velocityControlFrequency.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getPositionKp() {
+IRAM_ATTR float GlobalVariableManager::getPositionKp() {
     return atomic_load_float(_positionKp);
 }
 
-void GlobalVariableManager::setPositionKp(float value) {
+IRAM_ATTR void GlobalVariableManager::setPositionKp(float value) {
     atomic_store_float(_positionKp, value);
 }
 
-float GlobalVariableManager::getPositionKi() {
+IRAM_ATTR float GlobalVariableManager::getPositionKi() {
     return atomic_load_float(_positionKi);
 }
 
-void GlobalVariableManager::setPositionKi(float value) {
+IRAM_ATTR void GlobalVariableManager::setPositionKi(float value) {
     atomic_store_float(_positionKi, value);
 }
 
-float GlobalVariableManager::getPositionKd() {
+IRAM_ATTR float GlobalVariableManager::getPositionKd() {
     return atomic_load_float(_positionKd);
 }
 
-void GlobalVariableManager::setPositionKd(float value) {
+IRAM_ATTR void GlobalVariableManager::setPositionKd(float value) {
     atomic_store_float(_positionKd, value);
 }
 
-float GlobalVariableManager::getPositionSetpoint() {
+IRAM_ATTR float GlobalVariableManager::getPositionSetpoint() {
     return atomic_load_float(_positionSetpoint);
 }
 
-void GlobalVariableManager::setPositionSetpoint(float value) {
+IRAM_ATTR void GlobalVariableManager::setPositionSetpoint(float value) {
     atomic_store_float(_positionSetpoint, value);
 }
 
-uint32_t GlobalVariableManager::getPositionControlFrequency() {
+IRAM_ATTR uint32_t GlobalVariableManager::getPositionControlFrequency() {
     return _positionControlFrequency.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setPositionControlFrequency(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setPositionControlFrequency(uint32_t value) {
     _positionControlFrequency.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getAccX() {
+IRAM_ATTR float GlobalVariableManager::getAccX() {
     return atomic_load_float(_accX);
 }
 
-void GlobalVariableManager::setAccX(float value) {
+IRAM_ATTR void GlobalVariableManager::setAccX(float value) {
     atomic_store_float(_accX, value);
 }
 
-float GlobalVariableManager::getAccY() {
+IRAM_ATTR float GlobalVariableManager::getAccY() {
     return atomic_load_float(_accY);
 }
 
-void GlobalVariableManager::setAccY(float value) {
+IRAM_ATTR void GlobalVariableManager::setAccY(float value) {
     atomic_store_float(_accY, value);
 }
 
-float GlobalVariableManager::getAccZ() {
+IRAM_ATTR float GlobalVariableManager::getAccZ() {
     return atomic_load_float(_accZ);
 }
 
-void GlobalVariableManager::setAccZ(float value) {
+IRAM_ATTR void GlobalVariableManager::setAccZ(float value) {
     atomic_store_float(_accZ, value);
 }
 
-float GlobalVariableManager::getGyroX() {
+IRAM_ATTR float GlobalVariableManager::getGyroX() {
     return atomic_load_float(_gyroX);
 }
 
-void GlobalVariableManager::setGyroX(float value) {
+IRAM_ATTR void GlobalVariableManager::setGyroX(float value) {
     atomic_store_float(_gyroX, value);
 }
 
-float GlobalVariableManager::getGyroY() {
+IRAM_ATTR float GlobalVariableManager::getGyroY() {
     return atomic_load_float(_gyroY);
 }
 
-void GlobalVariableManager::setGyroY(float value) {
+IRAM_ATTR void GlobalVariableManager::setGyroY(float value) {
     atomic_store_float(_gyroY, value);
 }
 
-float GlobalVariableManager::getGyroZ() {
+IRAM_ATTR float GlobalVariableManager::getGyroZ() {
     return atomic_load_float(_gyroZ);
 }
 
-void GlobalVariableManager::setGyroZ(float value) {
+IRAM_ATTR void GlobalVariableManager::setGyroZ(float value) {
     atomic_store_float(_gyroZ, value);
 }
 
-float GlobalVariableManager::getUdpDataDebugFloat0() {
+IRAM_ATTR float GlobalVariableManager::getUdpDataDebugFloat0() {
     return atomic_load_float(_udpDataDebugFloat0);
 }
 
-void GlobalVariableManager::setUdpDataDebugFloat0(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugFloat0(float value) {
     atomic_store_float(_udpDataDebugFloat0, value);
 }
 
-float GlobalVariableManager::getUdpDataDebugFloat1() {
+IRAM_ATTR float GlobalVariableManager::getUdpDataDebugFloat1() {
     return atomic_load_float(_udpDataDebugFloat1);
 }
 
-void GlobalVariableManager::setUdpDataDebugFloat1(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugFloat1(float value) {
     atomic_store_float(_udpDataDebugFloat1, value);
 }
 
-float GlobalVariableManager::getUdpDataDebugFloat2() {
+IRAM_ATTR float GlobalVariableManager::getUdpDataDebugFloat2() {
     return atomic_load_float(_udpDataDebugFloat2);
 }
 
-void GlobalVariableManager::setUdpDataDebugFloat2(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugFloat2(float value) {
     atomic_store_float(_udpDataDebugFloat2, value);
 }
 
-float GlobalVariableManager::getUdpDataDebugFloat3() {
+IRAM_ATTR float GlobalVariableManager::getUdpDataDebugFloat3() {
     return atomic_load_float(_udpDataDebugFloat3);
 }
 
-void GlobalVariableManager::setUdpDataDebugFloat3(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugFloat3(float value) {
     atomic_store_float(_udpDataDebugFloat3, value);
 }
 
-int32_t GlobalVariableManager::getUdpDataDebugInt0() {
+IRAM_ATTR int32_t GlobalVariableManager::getUdpDataDebugInt0() {
     return _udpDataDebugInt0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpDataDebugInt0(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugInt0(int32_t value) {
     _udpDataDebugInt0.store(value, std::memory_order_relaxed);
 }
 
-int32_t GlobalVariableManager::getUdpDataDebugInt1() {
+IRAM_ATTR int32_t GlobalVariableManager::getUdpDataDebugInt1() {
     return _udpDataDebugInt1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpDataDebugInt1(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugInt1(int32_t value) {
     _udpDataDebugInt1.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getUdpDataDebugUint0() {
+IRAM_ATTR uint32_t GlobalVariableManager::getUdpDataDebugUint0() {
     return _udpDataDebugUint0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpDataDebugUint0(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugUint0(uint32_t value) {
     _udpDataDebugUint0.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getUdpDataDebugUint1() {
+IRAM_ATTR uint32_t GlobalVariableManager::getUdpDataDebugUint1() {
     return _udpDataDebugUint1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpDataDebugUint1(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpDataDebugUint1(uint32_t value) {
     _udpDataDebugUint1.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getUdpCommandDebugFloat0() {
+IRAM_ATTR float GlobalVariableManager::getUdpCommandDebugFloat0() {
     return atomic_load_float(_udpCommandDebugFloat0);
 }
 
-void GlobalVariableManager::setUdpCommandDebugFloat0(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugFloat0(float value) {
     atomic_store_float(_udpCommandDebugFloat0, value);
 }
 
-float GlobalVariableManager::getUdpCommandDebugFloat1() {
+IRAM_ATTR float GlobalVariableManager::getUdpCommandDebugFloat1() {
     return atomic_load_float(_udpCommandDebugFloat1);
 }
 
-void GlobalVariableManager::setUdpCommandDebugFloat1(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugFloat1(float value) {
     atomic_store_float(_udpCommandDebugFloat1, value);
 }
 
-float GlobalVariableManager::getUdpCommandDebugFloat2() {
+IRAM_ATTR float GlobalVariableManager::getUdpCommandDebugFloat2() {
     return atomic_load_float(_udpCommandDebugFloat2);
 }
 
-void GlobalVariableManager::setUdpCommandDebugFloat2(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugFloat2(float value) {
     atomic_store_float(_udpCommandDebugFloat2, value);
 }
 
-float GlobalVariableManager::getUdpCommandDebugFloat3() {
+IRAM_ATTR float GlobalVariableManager::getUdpCommandDebugFloat3() {
     return atomic_load_float(_udpCommandDebugFloat3);
 }
 
-void GlobalVariableManager::setUdpCommandDebugFloat3(float value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugFloat3(float value) {
     atomic_store_float(_udpCommandDebugFloat3, value);
 }
 
-int32_t GlobalVariableManager::getUdpCommandDebugInt0() {
+IRAM_ATTR int32_t GlobalVariableManager::getUdpCommandDebugInt0() {
     return _udpCommandDebugInt0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpCommandDebugInt0(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugInt0(int32_t value) {
     _udpCommandDebugInt0.store(value, std::memory_order_relaxed);
 }
 
-int32_t GlobalVariableManager::getUdpCommandDebugInt1() {
+IRAM_ATTR int32_t GlobalVariableManager::getUdpCommandDebugInt1() {
     return _udpCommandDebugInt1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpCommandDebugInt1(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugInt1(int32_t value) {
     _udpCommandDebugInt1.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getUdpCommandDebugUint0() {
+IRAM_ATTR uint32_t GlobalVariableManager::getUdpCommandDebugUint0() {
     return _udpCommandDebugUint0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpCommandDebugUint0(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugUint0(uint32_t value) {
     _udpCommandDebugUint0.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getUdpCommandDebugUint1() {
+IRAM_ATTR uint32_t GlobalVariableManager::getUdpCommandDebugUint1() {
     return _udpCommandDebugUint1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setUdpCommandDebugUint1(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setUdpCommandDebugUint1(uint32_t value) {
     _udpCommandDebugUint1.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getTcpDataDebugFloat0() {
+IRAM_ATTR float GlobalVariableManager::getTcpDataDebugFloat0() {
     return atomic_load_float(_tcpDataDebugFloat0);
 }
 
-void GlobalVariableManager::setTcpDataDebugFloat0(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugFloat0(float value) {
     atomic_store_float(_tcpDataDebugFloat0, value);
 }
 
-float GlobalVariableManager::getTcpDataDebugFloat1() {
+IRAM_ATTR float GlobalVariableManager::getTcpDataDebugFloat1() {
     return atomic_load_float(_tcpDataDebugFloat1);
 }
 
-void GlobalVariableManager::setTcpDataDebugFloat1(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugFloat1(float value) {
     atomic_store_float(_tcpDataDebugFloat1, value);
 }
 
-float GlobalVariableManager::getTcpDataDebugFloat2() {
+IRAM_ATTR float GlobalVariableManager::getTcpDataDebugFloat2() {
     return atomic_load_float(_tcpDataDebugFloat2);
 }
 
-void GlobalVariableManager::setTcpDataDebugFloat2(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugFloat2(float value) {
     atomic_store_float(_tcpDataDebugFloat2, value);
 }
 
-float GlobalVariableManager::getTcpDataDebugFloat3() {
+IRAM_ATTR float GlobalVariableManager::getTcpDataDebugFloat3() {
     return atomic_load_float(_tcpDataDebugFloat3);
 }
 
-void GlobalVariableManager::setTcpDataDebugFloat3(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugFloat3(float value) {
     atomic_store_float(_tcpDataDebugFloat3, value);
 }
 
-int32_t GlobalVariableManager::getTcpDataDebugInt0() {
+IRAM_ATTR int32_t GlobalVariableManager::getTcpDataDebugInt0() {
     return _tcpDataDebugInt0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpDataDebugInt0(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugInt0(int32_t value) {
     _tcpDataDebugInt0.store(value, std::memory_order_relaxed);
 }
 
-int32_t GlobalVariableManager::getTcpDataDebugInt1() {
+IRAM_ATTR int32_t GlobalVariableManager::getTcpDataDebugInt1() {
     return _tcpDataDebugInt1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpDataDebugInt1(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugInt1(int32_t value) {
     _tcpDataDebugInt1.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getTcpDataDebugUint0() {
+IRAM_ATTR uint32_t GlobalVariableManager::getTcpDataDebugUint0() {
     return _tcpDataDebugUint0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpDataDebugUint0(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugUint0(uint32_t value) {
     _tcpDataDebugUint0.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getTcpDataDebugUint1() {
+IRAM_ATTR uint32_t GlobalVariableManager::getTcpDataDebugUint1() {
     return _tcpDataDebugUint1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpDataDebugUint1(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpDataDebugUint1(uint32_t value) {
     _tcpDataDebugUint1.store(value, std::memory_order_relaxed);
 }
 
-float GlobalVariableManager::getTcpCommandDebugFloat0() {
+IRAM_ATTR float GlobalVariableManager::getTcpCommandDebugFloat0() {
     return atomic_load_float(_tcpCommandDebugFloat0);
 }
 
-void GlobalVariableManager::setTcpCommandDebugFloat0(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugFloat0(float value) {
     atomic_store_float(_tcpCommandDebugFloat0, value);
 }
 
-float GlobalVariableManager::getTcpCommandDebugFloat1() {
+IRAM_ATTR float GlobalVariableManager::getTcpCommandDebugFloat1() {
     return atomic_load_float(_tcpCommandDebugFloat1);
 }
 
-void GlobalVariableManager::setTcpCommandDebugFloat1(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugFloat1(float value) {
     atomic_store_float(_tcpCommandDebugFloat1, value);
 }
 
-float GlobalVariableManager::getTcpCommandDebugFloat2() {
+IRAM_ATTR float GlobalVariableManager::getTcpCommandDebugFloat2() {
     return atomic_load_float(_tcpCommandDebugFloat2);
 }
 
-void GlobalVariableManager::setTcpCommandDebugFloat2(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugFloat2(float value) {
     atomic_store_float(_tcpCommandDebugFloat2, value);
 }
 
-float GlobalVariableManager::getTcpCommandDebugFloat3() {
+IRAM_ATTR float GlobalVariableManager::getTcpCommandDebugFloat3() {
     return atomic_load_float(_tcpCommandDebugFloat3);
 }
 
-void GlobalVariableManager::setTcpCommandDebugFloat3(float value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugFloat3(float value) {
     atomic_store_float(_tcpCommandDebugFloat3, value);
 }
 
-int32_t GlobalVariableManager::getTcpCommandDebugInt0() {
+IRAM_ATTR int32_t GlobalVariableManager::getTcpCommandDebugInt0() {
     return _tcpCommandDebugInt0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpCommandDebugInt0(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugInt0(int32_t value) {
     _tcpCommandDebugInt0.store(value, std::memory_order_relaxed);
 }
 
-int32_t GlobalVariableManager::getTcpCommandDebugInt1() {
+IRAM_ATTR int32_t GlobalVariableManager::getTcpCommandDebugInt1() {
     return _tcpCommandDebugInt1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpCommandDebugInt1(int32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugInt1(int32_t value) {
     _tcpCommandDebugInt1.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getTcpCommandDebugUint0() {
+IRAM_ATTR uint32_t GlobalVariableManager::getTcpCommandDebugUint0() {
     return _tcpCommandDebugUint0.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpCommandDebugUint0(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugUint0(uint32_t value) {
     _tcpCommandDebugUint0.store(value, std::memory_order_relaxed);
 }
 
-uint32_t GlobalVariableManager::getTcpCommandDebugUint1() {
+IRAM_ATTR uint32_t GlobalVariableManager::getTcpCommandDebugUint1() {
     return _tcpCommandDebugUint1.load(std::memory_order_relaxed);
 }
 
-void GlobalVariableManager::setTcpCommandDebugUint1(uint32_t value) {
+IRAM_ATTR void GlobalVariableManager::setTcpCommandDebugUint1(uint32_t value) {
     _tcpCommandDebugUint1.store(value, std::memory_order_relaxed);
 }
 
