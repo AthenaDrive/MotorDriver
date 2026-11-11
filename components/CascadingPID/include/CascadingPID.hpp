@@ -36,4 +36,8 @@ public:
 private:
     PID_Reg _velocityPID;
     PID_Reg _positionPID;
+
+    // Reset the PID state when the mode changes, so an integrator wound up in
+    // one mode cannot kick the motor when another mode is selected.
+    uint32_t _lastMode = 0;
 };

@@ -1,11 +1,18 @@
 
 #include "CascadingPID.hpp"
+#include "esp_attr.h"
 
 CascadingPID::CascadingPID(CascadePidConfig config)
     : _velocityPID({config.velKp, config.velKi, config.velKd}),
     _positionPID({config.posKp, config.posKi, config.posKd}) {}
 
-esp_err_t CascadingPID::compute(float &iqRef, float dt, uint32_t drivingMode, CascadePidValues &values) {
+IRAM_ATTR esp_err_t CascadingPID::compute(float &iqRef, float dt, uint32_t drivingMode, CascadePidValues &values) {
+    if (drivingMode != _lastMode) {
+        _positionPID.reset();
+        _velocityPID.reset();
+        _lastMode = drivingMode;
+    }
+
     if (
         (drivingMode == 3)
     ) {
