@@ -9,7 +9,7 @@
 class StateEstimation {
 public:
     StateEstimation();
-    esp_err_t estimate(float encoderAngleRead, float &cumulativeAngle, float &velocity, float &acceleration);
+    esp_err_t estimate(float encoderAngleRead, float &cumulativeAngle, float &velocity, float &acceleration, float dt);
 
     // Currently using the double derivate.
     // Extremely noisy for velocity.
@@ -24,7 +24,6 @@ private:
     float _prev_angle = 0.0f;
     float _prev_velocity = 0.0f;
     
-    int64_t _prev_time_us = 0;
     bool _has_prev_read = false;
 
     LowpassFilter _lowpassAngle{0.01f};

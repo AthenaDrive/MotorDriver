@@ -13,7 +13,7 @@ static constexpr float TWO_PI_F = 6.28318530717958647692f;
 
 StateEstimation::StateEstimation() {}
 
-IRAM_ATTR esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cumulativeAngle, float &velocity, float &acceleration) {
+IRAM_ATTR esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cumulativeAngle, float &velocity, float &acceleration, float dt) {
 
 
     float delta = encoderAngleRead - _prev_angle;
@@ -26,10 +26,7 @@ IRAM_ATTR esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cum
         delta += TWO_PI_F;
     }
 
-    int64_t now = esp_timer_get_time();
     if (_has_prev_read && now > _prev_time_us) {
-        float dt = (now - _prev_time_us) / 1e6f;
-
         velocity = _lowpassVelocity.update(delta / dt);
         acceleration = _lowpassAcceleration.update((velocity - _prev_velocity) / dt);
 
@@ -45,7 +42,6 @@ IRAM_ATTR esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cum
 
     _prev_angle = encoderAngleRead;
     _prev_velocity = velocity;
-    _prev_time_us = now;
     _has_prev_read = true;
 
     return ESP_OK;
