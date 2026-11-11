@@ -26,7 +26,7 @@ IRAM_ATTR esp_err_t StateEstimation::estimate(float encoderAngleRead, float &cum
         delta += TWO_PI_F;
     }
 
-    if (_has_prev_read && now > _prev_time_us) {
+    if (_has_prev_read) {
         velocity = _lowpassVelocity.update(delta / dt);
         acceleration = _lowpassAcceleration.update((velocity - _prev_velocity) / dt);
 
