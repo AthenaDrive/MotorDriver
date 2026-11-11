@@ -33,9 +33,17 @@ public:
     // Returns ESP_FAIL for modes that are not implemented.
     esp_err_t compute(float &iqRef, float dt, uint32_t drivingMode, CascadePidValues &values);
 
+    // Push new gains into the PIDs. Only gains that differ from the cached
+    // values are written, so calling this every iteration does not disturb the
+    // integrator or derivative history.
+    void setGains(const CascadePidConfig &config);
+
 private:
     PID_Reg _velocityPID;
     PID_Reg _positionPID;
+
+    // Last gains written to the PIDs, used to skip redundant setter calls.
+    CascadePidConfig _gains;
 
     // Reset the PID state when the mode changes, so an integrator wound up in
     // one mode cannot kick the motor when another mode is selected.
