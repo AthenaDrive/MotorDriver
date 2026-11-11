@@ -77,7 +77,7 @@ private:
     // together with the Ethernet tasks.
     TaskHandle_t _taskHandle = nullptr;
 
-    int64_t _prevTime;
+    int64_t _loopTime = 100; // Loop time in us.
 
     int CURRENT_BASELINE_LOOPS = 10000;
     int CURRENT_BASELINE_SETTLE = 5000;
