@@ -13,6 +13,10 @@ public:
     void setMaxOut(float maxOut) { _maxOut = std::abs(maxOut); }
     float update(float currVal, float dt);
 
+    // Clear the integral and derivative history, e.g. when the driving mode
+    // changes and a stale integrator would otherwise kick the motor.
+    void reset();
+
 private:
     float _kp, _ki, _kd;
     float _setpoint = 0.0;
