@@ -77,7 +77,7 @@ Everything important is in `main/` and `components/`. `build/` and
 | `components/FOCTask/` | FOC task, startup/alignment state machine, current sensing |
 | `components/Controller/` | Clarke/Park transforms and d/q PI current loop |
 | `components/StateEstimation/` | Angle unwrap, velocity, acceleration |
-| `components/CascadingPID/` | Position/velocity cascade (currently **not called**) |
+| `components/CascadingPID/` | Position/velocity cascade used by modes 3/4 |
 | `components/DRV8320S/` | Gate-driver SPI registers and PWM mode |
 | `components/AS5047P/` | Encoder SPI protocol and pipelined reads |
 | `components/MCPWMDriver/` | 3-phase center-aligned PWM |
@@ -195,8 +195,9 @@ continuous/DMA ring buffer, which the FOC loop drains once per iteration.
    - `NORMAL` / `REVERSED`: force `_betaSign` and skip the test.
 7. `CURRENT` — all low-side FETs on (duty 0), 5000 settle + 5000 samples to measure
    the zero-current ADC offsets.
-8. `DONE` — restore 50% neutral and run closed-loop FOC using
-   `torqueSetpoint` directly as `iqRef`.
+8. `DONE` — restore 50% neutral and run closed-loop FOC. `drivingMode` selects
+   the torque reference: 3 = position cascade, 4 = velocity cascade, 5 = direct
+   `torqueSetpoint`, and any other value falls back to the direct setpoint.
 
 At the current 100 µs period the full startup takes roughly **2.4 seconds** after the
 bus becomes valid (18,500 loop-counted steps = 1.85 s, plus the 500 ms voltage
@@ -409,9 +410,15 @@ uint32_t header   // bitmask inside the payload
 - Bus current is **negated** in `main.cpp` because the shunt wiring is reversed.
   Do not remove that sign without checking the hardware.
 - `drivingMode` values in `CascadingPID`: 3 = position, 4 = velocity, 5 = torque.
-  This cascade is currently **not invoked**; the active FOC loop consumes
-  `torqueSetpoint` directly regardless of mode. Do not claim position/velocity
-  modes work.
+  The cascade runs every FOC iteration. Mode 3 chains position -> velocity ->
+  torque, mode 4 runs velocity -> torque, and mode 5 uses `torqueSetpoint`
+  directly. Modes outside 3-5 also fall back to the direct torque setpoint.
+  Position/velocity gains come from `positionKp/Ki/Kd` and
+  `velocityKp/Ki/Kd` in the GVM and are only written into the PID objects when
+  they change, so TCP tuning preserves the integrator state. GVM defaults are
+  all zero, so modes 3/4 output zero torque until gains are set. Position mode
+  publishes its generated velocity setpoint but leaves the user's
+  `torqueSetpoint` untouched.
 
 ---
 
@@ -591,14 +598,15 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
 - **Motor constants:** `Controller.cpp` currently hard-codes
   `motor_r = 39 mΩ`, `motor_l = 16 µH`, `motor_flux = 2.92 mWb`; verify against
   the motor before relying on them.
-- **CascadingPID is dead code in the active path:** it is constructed but
-  `compute()` is never called. It takes `drivingMode` plus a `CascadePidValues`
-  struct (setpoints/feedback) as arguments and has no GVM access. `drivingMode`
-  3/4/5 currently do not engage the position/velocity cascade.
-- **Limits/gains over TCP are not all applied:** torque/velocity/position gains and
-  `currentLimit*` are accepted and stored, but the active FOC path only reads
-  `torqueSetpoint` (plus pole pairs and a few GVM values). Do not assume setting a
-  gain changes the running loop.
+- **CascadingPID is active:** `FOCTask` calls `compute()` every FOC iteration
+  with `drivingMode` and a `CascadePidValues` struct. It still has no GVM access;
+  the caller supplies setpoints/feedback and publishes the generated velocity
+  setpoint. The PID output is limited by `PID_Reg`'s `_maxOut` (currently 15.0),
+  and the cascade PIDs reset when `drivingMode` changes. Gains are synced from
+  the GVM every iteration but written into `PID_Reg` only when a value changes.
+- **Limits/gains over TCP are not all applied:** position/velocity gains are now
+  applied, but `torqueKp/Ki/Kd` and `currentLimit*` are still only stored.
+  Setpoints and `drivingMode` are applied.
 - **Error reporting is incomplete:** gate-driver fault/VGS reads are commented out
   and `errorRegister` is always 0. The TCP command only clears `errorFlags`.
 - **Socket error paths:** some `sock < 0` branches call `vTaskDelete(nullptr)` and
@@ -643,8 +651,8 @@ Match the surrounding code rather than imposing a new style.
   ~3-4 µs, ADC ~3-5 µs, ctrl/pwm ~2 µs. The profiler itself adds ~6-7 µs, and
   maxima are typically 2-3x the averages.
 - **The core-1 hot path is in IRAM.** `FOCTask::update`, `Controller::update` and
-  its helpers, `PI_Reg::update`, `LowpassFilter::update`,
-  `StateEstimation::estimate`, `MCPWMDriver::set_duty`,
+  its helpers, `PI_Reg::update`, `CascadingPID::compute`, `PID_Reg::update`/`reset`,
+  `LowpassFilter::update`, `StateEstimation::estimate`, `MCPWMDriver::set_duty`,
   `AS5047P::pipeline_read_angle`/`_transfer`, and `SPIBase::polling_transmit` use
   `IRAM_ATTR`. On the IDF side, `CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y`,
   `CONFIG_FREERTOS_IN_IRAM=y` (required by `CONFIG_SPI_MASTER_IN_IRAM=y`),
