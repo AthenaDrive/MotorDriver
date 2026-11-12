@@ -76,7 +76,7 @@ Everything important is in `main/` and `components/`. `build/` and
 | `components/GlobalVariableManager/` | Generated shared state (`Variables.txt` is the source of truth) |
 | `components/FOCTask/` | FOC task, startup/alignment state machine, current sensing |
 | `components/Controller/` | Clarke/Park transforms and d/q PI current loop |
-| `components/StateEstimation/` | Angle unwrap, velocity, acceleration |
+| `components/StateEstimation/` | PLL-based angle unwrap, velocity, acceleration |
 | `components/CascadingPID/` | Position/velocity cascade used by modes 3/4 |
 | `components/DRV8320S/` | Gate-driver SPI registers and PWM mode |
 | `components/AS5047P/` | Encoder SPI protocol and pipelined reads |
@@ -590,11 +590,16 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
   leaves ~50 µs of headroom at the observed max; watch for overruns when
   Ethernet is active. Startup delays are loop-counted and now total ~2.4 s; the
   active PI has `Ki = 0`, but re-check the integrator scale if you enable it.
-- **State estimation:** velocity is a low-passed derivative of the encoder angle and
-  is noisy; acceleration is described in-code as not working. A Kalman/PLL is a
-  known TODO. The 0.01 lowpass alphas were tuned at the old 1-1.5 kHz rate; at
-  10 kHz the same alpha gives a ~7-10× higher cutoff, so retune them if velocity
-  noise or phase lag matters.
+- **State estimation:** `StateEstimation` is a type-2 tracking PLL on the wrapped
+  encoder angle (`cBandwidthHz` default 100 Hz, damping 1.0), not a filtered
+  derivative. Velocity is the PLL state, so it has no steady-state lag at
+  constant speed; acceleration is a 50 Hz filtered derivative of that state and
+  is intended for telemetry/feedforward. The published cumulative angle is raw
+  (no low-pass), because it feeds the position loop and a filter would add
+  `v * tau` error. The estimator receives a measured `dt` from the FOC loop and
+  rejects samples that imply more than `cMaxSpeedRadPerSec` (currently
+  2000 rad/s), carrying the elapsed time forward. Tune the PLL in Hz, not with
+  magic alphas. Encoder frame parity is still not validated.
 - **Motor constants:** `Controller.cpp` currently hard-codes
   `motor_r = 39 mΩ`, `motor_l = 16 µH`, `motor_flux = 2.92 mWb`; verify against
   the motor before relying on them.
