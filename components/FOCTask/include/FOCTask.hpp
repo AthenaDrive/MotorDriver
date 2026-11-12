@@ -12,6 +12,7 @@
 #include "Controller.hpp"
 #include "StateEstimation.hpp"
 #include "CascadingPID.hpp"
+#include "LowpassFilter.hpp"
 
 #include "AS5047P.hpp"
 #include "DRV8320S.hpp"
@@ -78,6 +79,11 @@ private:
     TaskHandle_t _taskHandle = nullptr;
 
     int64_t _loopTime = 100; // Loop time in us.
+
+    // Start timestamp of the previous state-estimation sample. The PLL uses a
+    // measured dt instead of the nominal timer period, so missed notifications
+    // or a late loop are integrated over the real elapsed time.
+    int64_t _prevLoopStartUs = 0;
 
     int CURRENT_BASELINE_LOOPS = 10000;
     int CURRENT_BASELINE_SETTLE = 5000;

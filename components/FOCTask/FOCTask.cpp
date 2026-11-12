@@ -33,7 +33,7 @@ FOCTask::FOCTask(FOCTaskConfig &config)
     _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI, SPI_DMA_DISABLED),
     _encoder(_spi, _config.cAS5047P_CS, 10000000),
     _drv(_spi, _config.cDRV8320S_CS, 1, 500000),
-    _controller({0.1, 0.0, 0.1, 0.0, 10.0, 10.0}),
+    _controller({0.1, 0.0, 0.1, 0.0, 50.0, 50.0}),
     _cascadePID({1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}) {
 }
 
@@ -201,7 +201,17 @@ IRAM_ATTR void FOCTask::update() {
     tEnc = esp_timer_get_time();
 #endif
 
-    _stateEstimation.estimate(angle, cumulativeAngle, velocity, acceleration, _loopTime / 1e6);
+    // Feed the estimator a measured dt. t0 was captured before the encoder
+    // read, so this is the real sample interval; a missed notification or a
+    // late loop is integrated over the elapsed time instead of the nominal
+    // 100 us. The first sample after boot uses the nominal period.
+    float dtSeconds = static_cast<float>(_loopTime) * 1e-6f;
+    if (_prevLoopStartUs != 0) {
+        dtSeconds = static_cast<float>(t0 - _prevLoopStartUs) * 1e-6f;
+    }
+    _prevLoopStartUs = t0;
+
+    _stateEstimation.estimate(angle, cumulativeAngle, velocity, acceleration, dtSeconds);
     globalVariableManager.setAngle(cumulativeAngle);
     globalVariableManager.setVelocity(velocity);
     globalVariableManager.setAcceleration(acceleration);
@@ -625,7 +635,7 @@ IRAM_ATTR void FOCTask::update() {
     if (dTotal > profTotalMax) profTotalMax = dTotal;
 
     profLoops++;
-    if (profLoops >= 1000) {
+    if (profLoops >= 10000) {
         // Measure the cost of one esp_timer_get_time() call so the stage
         // numbers above can be interpreted with the instrumentation overhead
         // in mind.
