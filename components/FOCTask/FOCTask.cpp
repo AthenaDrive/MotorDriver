@@ -25,6 +25,12 @@ static uint32_t profTotalSum = 0, profTotalMax = 0;
 static uint64_t profCycleSum = 0;
 #endif
 
+// Maximum d/q voltage vector magnitude in duty percentage points. One point is
+// busVoltage/100 volts, so this is the modulation budget the controller
+// enforces on the vector. The per-phase clamp after the inverse Clarke is only
+// a backstop.
+static constexpr float MAX_VOLTAGE_PERCENT = 30.0f;
+
 FOCTask::FOCTask(FOCTaskConfig &config)
     : _config(config),
     // The encoder and DRV8320S transfers are 16-bit. With DMA enabled the SPI
@@ -33,7 +39,11 @@ FOCTask::FOCTask(FOCTaskConfig &config)
     _spi(SPI2_HOST, _config.cSPI0_CLK, _config.cSPI0_PICO, _config.cSPI0_POCI, SPI_DMA_DISABLED),
     _encoder(_spi, _config.cAS5047P_CS, 10000000),
     _drv(_spi, _config.cDRV8320S_CS, 1, 500000),
-    _controller({0.1, 0.0, 0.1, 0.0, 50.0, 50.0}),
+    // Inner current loop at a 400 Hz crossover with the measured motor
+    // constants (Kp = wc*L, Ki = wc*R). Kept conservative because the ADC is
+    // not yet synchronized to the PWM carrier. Gains are V/A and V/(A*s); the
+    // controller converts its output to duty points using the bus voltage.
+    _controller({0.040f, 98.0f, 0.040f, 98.0f, MAX_VOLTAGE_PERCENT}),
     _cascadePID({1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}) {
 }
 
@@ -465,6 +475,11 @@ IRAM_ATTR void FOCTask::update() {
                 _pwm.set_duty(MCPWMDriver::CHANNEL_B, 50.0f);
                 _pwm.set_duty(MCPWMDriver::CHANNEL_C, 50.0f);
 
+                // Start closed-loop control with clean integrators. Nothing has
+                // run them yet, but this keeps the guarantee if the startup
+                // sequence is ever retried without a reset.
+                _controller.reset();
+
                 _alignPhase = AlignPhase::DONE;
 
                 phaseOffsetA = sumPhaseOffsetA / numCurrentReadings;
@@ -554,13 +569,24 @@ IRAM_ATTR void FOCTask::update() {
     float currentBForFoc = _config.cUsePhaseBForFoc ? currentB : -(currentA + currentC);
 
     float omegaE = velocity * numPolePairs;
-    _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, currentA, currentBForFoc);
-    // _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE, 0.0f, 0.0f);
+    // The controller works in volts and converts to duty points internally
+    // using the measured bus voltage, so Kp and Ki are in V/A and V/(A*s)
+    // regardless of the supply. dtSeconds is the measured FOC period.
+    _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE,
+                              globalVariableManager.getBusVoltage(), dtSeconds,
+                              currentA, currentBForFoc);
+    // _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE,
+    //                           globalVariableManager.getBusVoltage(), dtSeconds,
+    //                           0.0f, 0.0f);
 #if FOC_PROFILE
     tCtrl = esp_timer_get_time();
 #endif
 
-    float maxVal = 30.0f;
+    // Backstop only: the controller already limits the d/q vector to
+    // MAX_VOLTAGE_PERCENT, which the amplitude-invariant Clarke/Park pair
+    // preserves per phase. Clipping here would break the zero-sum property,
+    // so it should never trigger.
+    float maxVal = MAX_VOLTAGE_PERCENT;
     _out.phaseA = constrain(_out.phaseA, -maxVal, maxVal);
     _out.phaseB = constrain(_out.phaseB, -maxVal, maxVal);
     _out.phaseC = constrain(_out.phaseC, -maxVal, maxVal);
@@ -579,6 +605,16 @@ IRAM_ATTR void FOCTask::update() {
     globalVariableManager.setIa(currentA);
     globalVariableManager.setIb(currentB);
     globalVariableManager.setIc(currentC);
+
+    // Current-loop telemetry on the generic UDP debug channels:
+    //   0 = q-axis current reference (A)
+    //   1 = measured q-axis current (A)
+    //   2 = applied q-axis voltage (duty percentage points)
+    //   3 = 1.0 while the d/q voltage vector is limited, 0.0 otherwise
+    globalVariableManager.setUdpDataDebugFloat0(iqRef);
+    globalVariableManager.setUdpDataDebugFloat1(_controller.getIq());
+    globalVariableManager.setUdpDataDebugFloat2(_controller.getVqPercent());
+    globalVariableManager.setUdpDataDebugFloat3(_controller.isSaturated() ? 1.0f : 0.0f);
 #if FOC_PROFILE
     tGvm = esp_timer_get_time();
 #endif
