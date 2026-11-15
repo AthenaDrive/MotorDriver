@@ -203,8 +203,9 @@ At the current 100 µs period the full startup takes roughly **2.4 seconds** aft
 bus becomes valid (18,500 loop-counted steps = 1.85 s, plus the 500 ms voltage
 settle). The alignment/direction/current windows are loop-counted, so changing the
 period again changes them; convert them to time if the loop rate changes
-substantially. The active PI gains have `Ki = 0`; if integral gain is enabled, its
-per-iteration scale also depends on the period.
+substantially. The current-loop PI integrates with a measured `dt` in seconds and
+its gains are in SI units (`Kp` V/A, `Ki` V/(A·s)), so the tuning does not depend
+on the loop period.
 
 While the bus is below 9 V, the FOC timer still runs so the encoder keeps updating
 the GVM, but the gate driver is never initialized or enabled.
@@ -399,8 +400,16 @@ uint32_t header   // bitmask inside the payload
 - Electrical angle: `wrap(mechanicalAngle * polePairs + _elPosOffset)`.
 - Pole pairs come from the GVM (`numPolePairs`), not a compile-time constant.
 - PWM duty is **percent**: 50.0 is neutral, 0.0 is low-side on, 100.0 is high-side on.
-- FOC output is constrained to ±30 percentage points, then biased by +50, so the
-  physical duty range is 20–80%.
+- `Controller` computes the d/q voltage command in **volts** and converts it to duty
+  points with `100 / busVoltage` inside `update()`. One duty point is
+  `busVoltage/100` volts, so the current-loop gains stay in V/A and V/(A·s) and the
+  loop gain does not change with the supply. The d/q vector magnitude is limited to
+  ±30 percentage points; `FOCTask` still clamps each phase to ±30 and biases by +50
+  (physical duty range 20–80%) as a backstop.
+- The PI (`PI_Reg`) integrates `error * dt`. When the d/q vector limit clips the
+  applied voltage, `Controller` calls `PI_Reg::track()` to back-calculate the
+  integrator from the voltage that is actually applied, so it cannot wind up. The
+  integrators are reset when the startup sequence enters `DONE`.
 - Phase-current conversion in the FOC loop is `(millivolts - offset) / 50.0f`.
   That is correct for board v3: 1 mΩ shunt × INA241A3 gain of 50 V/V = 50 mV/A.
 - `main.cpp` sets `cUsePhaseBForFoc = true`, so the controller uses the real phase
@@ -589,7 +598,8 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
   ~0.85 µs), so `FOC_PROFILE 0` gives roughly 25-26 µs average. The 100 µs period
   leaves ~50 µs of headroom at the observed max; watch for overruns when
   Ethernet is active. Startup delays are loop-counted and now total ~2.4 s; the
-  active PI has `Ki = 0`, but re-check the integrator scale if you enable it.
+  current-loop PI takes a measured `dt`, so its gains are per-second and do not
+  change with the loop period.
 - **State estimation:** `StateEstimation` is a type-2 tracking PLL on the wrapped
   encoder angle (`cBandwidthHz` default 100 Hz, damping 1.0), not a filtered
   derivative. Velocity is the PLL state, so it has no steady-state lag at
@@ -600,9 +610,11 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
   rejects samples that imply more than `cMaxSpeedRadPerSec` (currently
   2000 rad/s), carrying the elapsed time forward. Tune the PLL in Hz, not with
   magic alphas. Encoder frame parity is still not validated.
-- **Motor constants:** `Controller.cpp` currently hard-codes
-  `motor_r = 39 mΩ`, `motor_l = 16 µH`, `motor_flux = 2.92 mWb`; verify against
-  the motor before relying on them.
+- **Motor constants:** `Controller.cpp` hard-codes `motor_l = 16 µH` and
+  `motor_flux = 2.92 mWb`; verify against the motor before relying on them.
+  `motor_r = 39 mΩ` is deliberately **not** used as a feedforward: the PI zero is
+  placed at `Ki/Kp = R/L`, and adding `R·i` as well would cancel the electrical pole
+  twice and make the loop overshoot.
 - **CascadingPID is active:** `FOCTask` calls `compute()` every FOC iteration
   with `drivingMode` and a `CascadePidValues` struct. It still has no GVM access;
   the caller supplies setpoints/feedback and publishes the generated velocity
@@ -656,7 +668,7 @@ Match the surrounding code rather than imposing a new style.
   ~3-4 µs, ADC ~3-5 µs, ctrl/pwm ~2 µs. The profiler itself adds ~6-7 µs, and
   maxima are typically 2-3x the averages.
 - **The core-1 hot path is in IRAM.** `FOCTask::update`, `Controller::update` and
-  its helpers, `PI_Reg::update`, `CascadingPID::compute`, `PID_Reg::update`/`reset`,
+  its helpers, `PI_Reg::update`/`track`, `CascadingPID::compute`, `PID_Reg::update`/`reset`,
   `LowpassFilter::update`, `StateEstimation::estimate`, `MCPWMDriver::set_duty`,
   `AS5047P::pipeline_read_angle`/`_transfer`, and `SPIBase::polling_transmit` use
   `IRAM_ATTR`. On the IDF side, `CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y`,
