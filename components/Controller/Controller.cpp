@@ -37,20 +37,48 @@ static inline void fastSinCos(float x, float &sinOut, float &cosOut) {
 }
 
 Controller::Controller(const ControllerParams& params)
-	: _dReg(params.dRegKp, params.dRegKi), _qReg(params.qRegKp, params.qRegKi) {}
+	: _dReg(params.dRegKp, params.dRegKi),
+	  _qReg(params.qRegKp, params.qRegKi),
+	  _voltageLimitPercent(params.voltageLimitPercent) {}
 
 IRAM_ATTR Output Controller::update(
 	const float iqRef,
 	const float electricalPosition,
 	const float motorVelocity,
+	const float busVoltage,
+	const float dtSeconds,
 	const float Ia, const float Ib)
 {
+	// The PI loops and the feedforward model work in volts, but the PWM takes
+	// duty percentage points and one point is busVoltage/100 volts. Convert
+	// here so Kp stays in V/A and the loop gain does not change when the
+	// supply voltage changes. Without a usable bus measurement the bridge
+	// stays at neutral; the FOC state machine gates closed-loop operation on
+	// the bus voltage anyway.
+	if (!(busVoltage > MIN_BUS_VOLTAGE)) {
+		_saturated = false;
+		_parkVqPercent = 0.0f;
+		_output.phaseA = 0.0f;
+		_output.phaseB = 0.0f;
+		_output.phaseC = 0.0f;
+		return _output;
+	}
+
+	const float pctPerVolt = 100.0f / busVoltage;
+
 	float sinPos, cosPos;
 	fastSinCos(electricalPosition, sinPos, cosPos);
 
 	_clarkeTransform(Ia, Ib);
 	_parkTransform(sinPos, cosPos);
-	_PILoop(iqRef, motorVelocity);
+	_PILoop(iqRef, motorVelocity, dtSeconds,
+	        0.01f * _voltageLimitPercent * busVoltage);
+
+	// Volts -> duty percentage points.
+	_parkVd *= pctPerVolt;
+	_parkVq *= pctPerVolt;
+	_parkVqPercent = _parkVq;
+
 	_parkInverse(sinPos, cosPos);
 	_clarkeInverse();
 	_subtractAvg();
@@ -75,24 +103,48 @@ IRAM_ATTR void Controller::_parkTransform(const float sinElectricalPos, const fl
 	_parkIq = -sinElectricalPos * _clarkeIa + cosElectricalPos * _clarkeIb;
 }
 
-IRAM_ATTR void Controller::_PILoop(const float iqRef, const float motorVelocity) {
-    float idRef = 0.0f;
-    float vdPI = _dReg.update(idRef - _parkId);
-    float vqPI = _qReg.update(iqRef - _parkIq);
+IRAM_ATTR void Controller::_PILoop(const float iqRef, const float motorVelocity,
+                                   const float dtSeconds, const float voltageLimit) {
+    // The PI zero is placed at Ki/Kp = R/L so it cancels the electrical pole.
+    // Do not add motor_r * i as a separate feedforward: that cancels the same
+    // pole a second time and turns the response into a lightly damped
+    // second-order one (verified ~32% overshoot, ~50% with one sample of
+    // feedback delay). The integrator absorbs the resistance instead.
+    // Back-EMF and the d/q cross-coupling are real disturbances and stay.
+    constexpr float idRef = 0.0f;
+    const float errD = idRef - _parkId;
+    const float errQ = iqRef - _parkIq;
 
-    constexpr float motor_r = 0.039f;       // Phase resistance (Ohm)
     constexpr float motor_l = 0.000016f;   // Phase inductance (H)
     constexpr float motor_flux = 0.00292f; // Flux linkage (Wb)
 
-    float vd_decouple = -motorVelocity * motor_l * _parkIq;
-    float vq_decouple = motorVelocity * motor_l * _parkId
-                      + motorVelocity * motor_flux;
+    const float vdFF = -motorVelocity * motor_l * _parkIq;
+    const float vqFF = motorVelocity * motor_l * _parkId
+                     + motorVelocity * motor_flux;
 
-    float vd_resistance = motor_r * _parkId;
-    float vq_resistance = motor_r * _parkIq;
+    float vd = _dReg.update(errD, dtSeconds, voltageLimit) + vdFF;
+    float vq = _qReg.update(errQ, dtSeconds, voltageLimit) + vqFF;
 
-    _parkVd = vdPI + vd_decouple + vd_resistance;
-    _parkVq = vqPI + vq_decouple + vq_resistance;
+    // Limit the d/q vector magnitude, not each phase. Clipping the phases
+    // after the inverse Clarke would rotate the applied vector and inject
+    // current on the other axis when the loop saturates. The PI output alone
+    // cannot be bounded because the feedforward above uses part of the same
+    // voltage budget, so back-calculate the integrators from the voltage that
+    // is actually applied.
+    _saturated = false;
+    const float vmag2 = vd * vd + vq * vq;
+    const float limit2 = voltageLimit * voltageLimit;
+    if (vmag2 > limit2) {
+        const float scale = voltageLimit / std::sqrt(vmag2);
+        vd *= scale;
+        vq *= scale;
+        _dReg.track(errD, vd - vdFF, voltageLimit);
+        _qReg.track(errQ, vq - vqFF, voltageLimit);
+        _saturated = true;
+    }
+
+    _parkVd = vd;
+    _parkVq = vq;
 }
 
 IRAM_ATTR void Controller::_parkInverse(const float sinElectricalPos, const float cosElectricalPos) {
