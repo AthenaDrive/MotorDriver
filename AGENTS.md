@@ -631,8 +631,11 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
 - **CascadingPID is active:** `FOCTask` calls `compute()` every FOC iteration
   with `drivingMode` and a `CascadePidValues` struct. It still has no GVM access;
   the caller supplies setpoints/feedback and publishes the generated velocity
-  setpoint. The PID output is limited by `PID_Reg`'s `_maxOut` (currently 15.0),
-  and the cascade PIDs reset when `drivingMode` changes. Gains are synced from
+  setpoint. The velocity PID's output (`iqRef`) is limited to `MAX_IQ_REF`
+  (6.0 A in `FOCTask.cpp`), the same value as the q-axis reference clamp, so its
+  anti-windup engages at the clamp instead of `PID_Reg`'s 15.0 default. The
+  position PID keeps the default 15.0 output limit (a velocity setpoint). The
+  cascade PIDs reset when `drivingMode` changes. Gains are synced from
   the GVM every iteration but written into `PID_Reg` only when a value changes.
 - **Limits/gains over TCP are not all applied:** position/velocity gains are now
   applied, but `torqueKp/Ki/Kd` and `currentLimit*` are still only stored.
