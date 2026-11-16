@@ -306,7 +306,7 @@ private:
     uint32_t _tcpFromControllerBufferSize{0};
     std::mutex _tcpFromControllerBufferMutex;
 
-    std::atomic_uint32_t _numPolePairs{7};
+    std::atomic_uint32_t _numPolePairs{20};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
     std::atomic_uint32_t _angle{0};
