@@ -554,10 +554,22 @@ zero-current offset during the startup `CURRENT` phase and subtracts it.
 
 `ADCContinuous::init()` in `FOCTask` is configured as `0.001f, 50.0f, 1.65f` to
 match the board-v3 shunt, amplifier gain, and mid-supply reference. It runs ADC1
-in continuous/DMA mode at 60 kHz total (20 kHz per phase), with 48-byte DMA
-frames and a 1 KB pool flushed from the oldest end if the FOC loop ever falls
-behind. `read_voltage_all()` drains the pool once per FOC iteration and keeps the
-newest raw value of each channel.
+in continuous/DMA mode at 71 kHz total (about 23.8 kHz per phase), with 48-byte
+DMA frames and a 1 KB pool flushed from the oldest end if the FOC loop ever falls
+behind. `read_voltage_all()` drains the pool once per FOC iteration and returns,
+per channel, the mean of the last four samples.
+
+That averaging is not cosmetic. At 24 V and 30 kHz a 16 µH motor carries roughly
+5 A peak-to-peak of switching ripple, and the ADC is not synchronised to the
+carrier, so a single sample is an arbitrary point on that ripple (about 2.5 A of
+worst-case error, which is why the telemetry could show 7 A while the loop held
+1 A). The requested rate is deliberately 71 kHz, not 72 kHz: the ADC digital
+controller quantises to 2.5 MHz / n, so 71 kHz selects n = 35 (71.43 kHz actual).
+The resulting 1.26-carrier-period sample spacing puts four consecutive samples at
+0, 0.26, 0.52 and 0.78 of a carrier period, which cancels the ripple to about
+0.24 A worst case. The 72 kHz request rounds to n = 34 (about 0.39 A) and the old
+60 kHz request to n = 41 (about 1.6 A). If the PWM frequency or the ADC rate is
+ever changed, re-check that spacing — it is what makes the average work.
 
 Do not call `adc_cali_raw_to_voltage()` from the FOC loop. The IDF curve-fitting
 path is a 5-term 64-bit polynomial with runtime 64-bit divisions; three calls
@@ -568,11 +580,12 @@ well under 0.1 A at 50 mV/A).
 The ADC continuous DMA ISR is allocated when `ADCContinuous::init()` creates the
 driver from `app_main`, so it runs on **core 0**. The FOC task drains the ring
 buffer on **core 1**. Keep it that way: moving the ISR to core 1 would make it
-preempt the control loop. `refresh()`, `parse_latest()`, `read_voltage_all()` and
-the LUT interpolation are placed in IRAM so core 0's Ethernet traffic cannot
-evict them from the shared flash I-cache. The IDF `adc_continuous_read()` and
-`xRingbufferReceiveUpTo()` are still flash-resident; `CONFIG_RINGBUF_IN_IRAM=y`
-would move the latter into IRAM if the remaining max spikes matter.
+preempt the control loop. `refresh()`, `accumulate()`, `push_sample()`,
+`averaged_raw()`, `read_voltage_all()` and the LUT interpolation are placed in
+IRAM so core 0's Ethernet traffic cannot evict them from the shared flash
+I-cache. The IDF `adc_continuous_read()` and `xRingbufferReceiveUpTo()` are still
+flash-resident; `CONFIG_RINGBUF_IN_IRAM=y` would move the latter into IRAM if the
+remaining max spikes matter.
 
 ---
 
