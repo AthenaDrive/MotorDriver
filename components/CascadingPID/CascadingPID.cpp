@@ -52,6 +52,13 @@ IRAM_ATTR void CascadingPID::setGains(const CascadePidConfig &config) {
     if (doResetVel) { _velocityPID.reset(); }
 }
 
+void CascadingPID::setTorqueLimit(float maxAmps) {
+    if (maxAmps != _torqueLimit) {
+        _torqueLimit = maxAmps;
+        _velocityPID.setMaxOut(maxAmps);
+    }
+}
+
 IRAM_ATTR esp_err_t CascadingPID::compute(float &iqRef, float dt, uint32_t drivingMode, CascadePidValues &values) {
     if (drivingMode != _lastMode) {
         _positionPID.reset();

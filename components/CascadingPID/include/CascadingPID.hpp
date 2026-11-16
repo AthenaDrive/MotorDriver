@@ -38,12 +38,21 @@ public:
     // integrator or derivative history.
     void setGains(const CascadePidConfig &config);
 
+    // Limit the torque (q-axis current, A) the velocity stage may request.
+    // This is also the PID's output limit, so its anti-windup starts at the
+    // same value as the current-reference clamp in the FOC loop.
+    void setTorqueLimit(float maxAmps);
+
 private:
     PID_Reg _velocityPID;
     PID_Reg _positionPID;
 
     // Last gains written to the PIDs, used to skip redundant setter calls.
     CascadePidConfig _gains;
+
+    // Cached velocity PID output limit, so setTorqueLimit() only writes the
+    // PID when the value actually changes.
+    float _torqueLimit = 10.0f;
 
     // Reset the PID state when the mode changes, so an integrator wound up in
     // one mode cannot kick the motor when another mode is selected.
