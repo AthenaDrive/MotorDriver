@@ -31,6 +31,11 @@ static uint64_t profCycleSum = 0;
 // a backstop.
 static constexpr float MAX_VOLTAGE_PERCENT = 30.0f;
 
+// Maximum q-axis current reference in amps. The cascade velocity PID uses the
+// same value as its output limit, so its anti-windup engages at the same point
+// as the reference clamp instead of the PID's much larger default.
+static constexpr float MAX_IQ_REF = 6.0f;
+
 FOCTask::FOCTask(FOCTaskConfig &config)
     : _config(config),
     // The encoder and DRV8320S transfers are 16-bit. With DMA enabled the SPI
@@ -45,6 +50,7 @@ FOCTask::FOCTask(FOCTaskConfig &config)
     // controller converts its output to duty points using the bus voltage.
     _controller({0.040f, 98.0f, 0.040f, 98.0f, MAX_VOLTAGE_PERCENT}),
     _cascadePID({1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}) {
+    _cascadePID.setTorqueLimit(MAX_IQ_REF);
 }
 
 void FOCTask::begin() {
@@ -543,6 +549,12 @@ IRAM_ATTR void FOCTask::update() {
     tPrep = esp_timer_get_time();
 #endif
 
+    // Each value is the mean of the last four samples of that phase, not the
+    // newest one. At the 30 kHz carrier with a low-inductance motor the
+    // instantaneous phase current swings by several amps, and the ADC is not
+    // synchronised to the PWM, so a single sample is an arbitrary point on
+    // that ripple. The four-sample mean removes it (see
+    // ADCContinuous::DEFAULT_SAMPLE_FREQ_HZ for the rate choice).
     int mvPhaseA, mvPhaseB, mvPhaseC;
     if (_adc.read_voltage_all(mvPhaseA, mvPhaseB, mvPhaseC) != ESP_OK) {
         // No complete set of phase-current samples yet. Skip this iteration
@@ -569,6 +581,12 @@ IRAM_ATTR void FOCTask::update() {
     float currentBForFoc = _config.cUsePhaseBForFoc ? currentB : -(currentA + currentC);
 
     float omegaE = velocity * numPolePairs;
+
+    // In modes 3/4 the cascade velocity PID already limits its output to
+    // MAX_IQ_REF, so this catches the direct torque setpoint in mode 5 and
+    // acts as a backstop for the others.
+    iqRef = constrain(iqRef, -MAX_IQ_REF, +MAX_IQ_REF);
+
     // The controller works in volts and converts to duty points internally
     // using the measured bus voltage, so Kp and Ki are in V/A and V/(A*s)
     // regardless of the supply. dtSeconds is the measured FOC period.
