@@ -81,6 +81,7 @@ Everything important is in `main/` and `components/`. `build/` and
 | `components/DRV8320S/` | Gate-driver SPI registers and PWM mode |
 | `components/AS5047P/` | Encoder SPI protocol and pipelined reads |
 | `components/MCPWMDriver/` | 3-phase center-aligned PWM |
+| `components/BrakeChopperPWM/` | Single-channel brake-chopper PWM on GPIO1 (MCPWM group 1) |
 | `components/ADCContinuous/` | Phase-current ADC, ADC1 continuous/DMA (active path) |
 | `components/ADCOneshot/` | Older blocking phase-current driver, no longer used by FOC |
 | `components/EthernetTask/` | W5500 Ethernet, daisy-chain routing, UDP/TCP protocol |

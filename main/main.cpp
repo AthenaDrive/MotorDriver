@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <algorithm>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -16,6 +17,7 @@
 #include "GlobalVariableManager.hpp"
 #include "Pinout.hpp"
 #include "Config.hpp"
+#include "BrakeChopperPWM.hpp"
 
 extern "C" void app_main(void) {
 
@@ -84,13 +86,19 @@ extern "C" void app_main(void) {
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();
 
+    BrakeChopperPWM brakeChopper{BRAKE_CHOPPER_PWM};
+    ESP_ERROR_CHECK(brakeChopper.init());
+    brakeChopper.setDuty(0.0f);
+
     printf("All sensors, Ethernet, PWM, and ADC initialized.\n");
 
-    float temp, vbus, vshunt, current, power;
+    float temp = 0.0f, vbus = 0.0f, vshunt = 0.0f, current = 0.0f, power = 0.0f;
     float ax, ay, az, gx, gy, gz, lsm_temp;
     
+    int iteration = 0;
     while (1) {
         int64_t t0 = esp_timer_get_time();
+        iteration++;
 
         if (lm75.read_temperature(temp) == ESP_OK) {
             // printf("LM75A: %.2f C\n", temp);
@@ -124,6 +132,23 @@ extern "C" void app_main(void) {
                 globalVariableManager.setGyroZ(gz);
             }
 
+        if (iteration >= 100) {
+            // auto drivingMode = globalVariableManager.getDrivingMode();
+            // auto iqRef = globalVariableManager.getTorqueSetpoint();
+            // auto velRef = globalVariableManager.getVelocitySetpoint();
+            // auto posRef = globalVariableManager.getPositionSetpoint();
+            // printf("M: %li | Torque: %f | Vel: %f | Pos: %f\n", drivingMode, iqRef, velRef, posRef);
+
+            // auto pTerm = globalVariableManager.getPositionKp();
+            // auto iTerm = globalVariableManager.getPositionKi();
+            // auto dTerm = globalVariableManager.getPositionKd();
+            // printf("Kp: %f | Ki: %f | Kd: %f\n", pTerm, iTerm, dTerm);
+
+            // printf("Temp: %.2f C | Bus (V, A): %f, %f\n", temp, vbus, current);
+
+            iteration = 0;
+        }
+        
         int64_t t1 = esp_timer_get_time();
         globalVariableManager.setAvgLoopTimeSecondary(t1 - t0);
         vTaskDelay(pdMS_TO_TICKS(1));
