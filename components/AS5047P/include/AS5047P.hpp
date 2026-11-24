@@ -33,12 +33,22 @@ public:
     esp_err_t pipeline_start();
     esp_err_t pipeline_read_angle(float &radians, bool with_daec = true);
 
+    // Split pipelined read. pipeline_start_read() starts the 16-bit frame and
+    // returns; pipeline_finish_read() waits for it and decodes the angle. The
+    // caller can do independent work in between. The AS5047P returns the data
+    // sampled at the end of the previous command, so splitting the transfer
+    // inside one FOC iteration does not add any angle latency.
+    esp_err_t pipeline_start_read(bool with_daec = true);
+    esp_err_t pipeline_finish_read(float &radians);
+
 private:
     static uint16_t _apply_parity(uint16_t word);
     static float _raw_to_degrees(uint16_t raw);
     static float _raw_to_radians(uint16_t raw);
 
     esp_err_t _transfer(uint16_t tx, uint16_t &rx);
+    esp_err_t _transfer_start(uint16_t tx);
+    esp_err_t _transfer_finish(uint16_t &rx);
 
     SPIBase &_spi;
     spi_device_handle_t _dev;
@@ -46,4 +56,9 @@ private:
     int _clock_speed_hz;
     bool _initialized;
     bool _pipeline_active;
+    bool _transfer_pending;
+    bool _first_pipeline_frame;
+    uint8_t _tx_buf[2];
+    uint8_t _rx_buf[2];
+    spi_transaction_t _pending_trans;
 };
