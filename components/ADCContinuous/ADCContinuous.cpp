@@ -1,5 +1,7 @@
 #include "ADCContinuous.hpp"
 
+#include <atomic>
+
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_cpu.h"
@@ -23,8 +25,10 @@ static constexpr uint8_t ALL_CHANNELS_MASK =
     (1u << ADCContinuous::CHANNEL_COUNT) - 1u;
 
 // DMA results carry the raw ADC1 channel number, not our channel index. Map
-// the three phase channels and reject everything else in one lookup.
-static constexpr uint8_t CHANNEL_FOR_ADC[16] = {
+// the three phase channels and reject everything else in one lookup. This is
+// read from the ADC completion callback, so keep it in internal RAM instead
+// of flash rodata.
+static constexpr uint8_t CHANNEL_FOR_ADC[16] DRAM_ATTR = {
     0xFF, 0xFF, 0xFF,  // ADC1 channels 0-2 are not used
     2,                 // ADC1_CH3 = phase C (GPIO4)
     1,                 // ADC1_CH4 = phase B (GPIO5)
@@ -39,16 +43,12 @@ static_assert(CHANNEL_FOR_ADC[CHANNEL_ADC[ADCContinuous::CHANNEL_A]] == ADCConti
               "CHANNEL_FOR_ADC does not match the CHANNEL_ADC pin map");
 
 // One frame holds 12 results, i.e. four complete A/B/C scans. At the actual
-// 71.4 kHz that is one DMA interrupt every ~56 us, so the newest sample the
-// FOC loop can pick up is at most one frame old. The ring buffer holds about
-// 3.6 ms of results; the FOC loop normally drains it every 100 us.
+// 71.4 kHz that is one DMA completion every 168 us, so the callback keeps the
+// per-channel history up to date without the FOC loop touching the ring
+// buffer. The ring buffer holds about 3.6 ms of results; nothing drains it in
+// the hot path, and flush_pool keeps the newest data if it ever fills.
 static constexpr uint32_t CONV_FRAME_BYTES = 48;
 static constexpr uint32_t RING_BUFFER_BYTES = 1024;
-
-// A single adc_continuous_read() is limited to the buffer size. 512 bytes
-// covers 128 results (~1.8 ms at 71.4 kHz), so the normal path is one call per
-// 100 us FOC iteration and only a late loop hits the multi-chunk path.
-static constexpr uint32_t READ_CHUNK_BYTES = 512;
 
 static_assert((ADCContinuous::AVERAGE_SAMPLES & (ADCContinuous::AVERAGE_SAMPLES - 1)) == 0,
               "AVERAGE_SAMPLES must be a power of two");
@@ -62,7 +62,8 @@ ADCContinuous::ADCContinuous()
     , _csa_gain(0)
     , _vref(0)
     , _sample_freq_hz(0)
-    , _seen_mask(0) {
+    , _seen_mask(0)
+    , _seq(0) {
     for (int i = 0; i < CHANNEL_COUNT; i++) {
         _latest_raw[i] = 0;
         _avg_sum[i] = 0;
@@ -167,6 +168,25 @@ esp_err_t ADCContinuous::init(float shunt_ohm, float csa_gain, float vref,
         _cali_enabled = false;
     }
 
+    // Keep the per-channel average up to date from the DMA completion
+    // callback. The callback runs on the core that allocated the driver (the
+    // caller's core; app_main runs on core 0), so the FOC loop on core 1 only
+    // has to take a snapshot. Register before start so no frame is missed.
+    adc_continuous_evt_cbs_t cbs = {};
+    cbs.on_conv_done = _onConvDone;
+    ret = adc_continuous_register_event_callbacks(_adc_handle, &cbs, this);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "register ADC callbacks failed (%s)", esp_err_to_name(ret));
+        if (_cali_enabled) {
+            adc_cali_delete_scheme_curve_fitting(_cali_handle);
+            _cali_handle = nullptr;
+            _cali_enabled = false;
+        }
+        adc_continuous_deinit(_adc_handle);
+        _adc_handle = nullptr;
+        return ret;
+    }
+
     ret = adc_continuous_start(_adc_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "start ADC continuous failed (%s)", esp_err_to_name(ret));
@@ -197,36 +217,28 @@ esp_err_t ADCContinuous::init(float shunt_ohm, float csa_gain, float vref,
     return ESP_OK;
 }
 
-// Drain everything the DMA engine has produced so far and push it into the
-// per-channel history. read_voltage_all() returns the mean of that history;
-// read_raw()/read_voltage() keep returning the newest sample.
-IRAM_ATTR esp_err_t ADCContinuous::refresh() {
-    if (!_initialized) {
-        return ESP_ERR_INVALID_STATE;
-    }
+// DMA completion callback. It runs in the ADC ISR (on the core that called
+// adc_continuous_new_handle(), i.e. core 0 from app_main) and pushes each
+// finished frame into the per-channel history. The FOC loop then only takes a
+// snapshot, so it never calls the flash-resident adc_continuous_read() and a
+// late loop cannot build up a backlog to parse.
+IRAM_ATTR bool ADCContinuous::_onConvDone(adc_continuous_handle_t handle,
+                                          const adc_continuous_evt_data_t *edata,
+                                          void *user_data) {
+    (void)handle;
+    ADCContinuous *self = static_cast<ADCContinuous *>(user_data);
 
-    // The results are 32-bit words, so keep the copy buffer aligned before
-    // casting slices to adc_digi_output_data_t.
-    alignas(4) uint8_t buf[READ_CHUNK_BYTES];
-    for (;;) {
-        uint32_t length = 0;
-        esp_err_t ret = adc_continuous_read(_adc_handle, buf, sizeof(buf), &length, 0);
-        if (ret == ESP_ERR_TIMEOUT) {
-            // Nothing new since the last call. The cached values stay valid.
-            return ESP_OK;
-        }
-        if (ret != ESP_OK) {
-            return ret;
-        }
+    // Seqlock: odd while the history is being updated. There is only one
+    // writer (this ISR), so a plain increment is enough. The compiler fences
+    // keep the data writes between the two sequence updates; the FOC reader
+    // retries if the sequence changed while it was reading.
+    self->_seq = self->_seq + 1;
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    self->accumulate(edata->conv_frame_buffer, edata->size);
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    self->_seq = self->_seq + 1;
 
-        accumulate(buf, length);
-
-        // A full buffer may leave more results queued. A short read means the
-        // pool is empty for now.
-        if (length < sizeof(buf)) {
-            return ESP_OK;
-        }
-    }
+    return false;
 }
 
 IRAM_ATTR void ADCContinuous::accumulate(const uint8_t *data, uint32_t size) {
@@ -237,7 +249,7 @@ IRAM_ATTR void ADCContinuous::accumulate(const uint8_t *data, uint32_t size) {
     // average to be an average over consecutive samples; stopping at the
     // newest one of each channel (the old behaviour) is what made the reading
     // depend on where the free-running ADC happened to land on the ripple.
-    // A normal 100 us drain holds only about eight results.
+    // One frame holds four complete A/B/C scans.
     const uint32_t aligned_size = size - (size % SOC_ADC_DIGI_RESULT_BYTES);
     for (uint32_t i = 0; i < aligned_size; i += SOC_ADC_DIGI_RESULT_BYTES) {
         const adc_digi_output_data_t *result =
@@ -279,7 +291,16 @@ IRAM_ATTR int ADCContinuous::averaged_raw(Channel ch) const {
     }
     // Round instead of truncating: the raw value is 12-bit, so half a count is
     // ~0.04 A at 50 mV/A, but rounding keeps the zero-current offset centred.
-    return static_cast<int>((_avg_sum[ch] + (count >> 1)) / count);
+    // The steady state is count == 4; use a shift there instead of a runtime
+    // integer divide in the FOC loop.
+    switch (count) {
+    case 2:
+        return static_cast<int>((_avg_sum[ch] + 1u) >> 1);
+    case 4:
+        return static_cast<int>((_avg_sum[ch] + 2u) >> 2);
+    default:
+        return static_cast<int>((_avg_sum[ch] + (count >> 1)) / count);
+    }
 }
 
 esp_err_t ADCContinuous::read_raw(Channel ch, int &raw) {
@@ -290,15 +311,27 @@ esp_err_t ADCContinuous::read_raw(Channel ch, int &raw) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret = refresh();
-    if (ret != ESP_OK) {
-        return ret;
+    uint8_t seen;
+    int latest;
+    for (;;) {
+        const uint32_t s1 = _seq;
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (s1 & 1u) {
+            continue; // callback is updating the history
+        }
+        seen = _seen_mask;
+        latest = _latest_raw[ch];
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (_seq == s1) {
+            break;
+        }
     }
-    if ((_seen_mask & (1u << ch)) == 0) {
+
+    if ((seen & (1u << ch)) == 0) {
         return ESP_ERR_INVALID_STATE; // no sample for this channel yet
     }
 
-    raw = _latest_raw[ch];
+    raw = latest;
     return ESP_OK;
 }
 
@@ -336,26 +369,40 @@ IRAM_ATTR esp_err_t ADCContinuous::read_voltage_all(int &voltage_a_mv, int &volt
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t ret = refresh();
-    if (ret != ESP_OK) {
-        return ret;
+    int raw_a, raw_b, raw_c;
+    uint8_t seen;
+    for (;;) {
+        const uint32_t s1 = _seq;
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (s1 & 1u) {
+            continue; // callback is updating the history
+        }
+        seen = _seen_mask;
+        raw_a = averaged_raw(CHANNEL_A);
+        raw_b = averaged_raw(CHANNEL_B);
+        raw_c = averaged_raw(CHANNEL_C);
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        if (_seq == s1) {
+            break;
+        }
     }
-    if (_seen_mask != ALL_CHANNELS_MASK) {
+
+    if (seen != ALL_CHANNELS_MASK) {
         return ESP_ERR_INVALID_STATE; // not every channel has produced a sample yet
     }
 
     // The averaged value, not the newest sample: see DEFAULT_SAMPLE_FREQ_HZ.
     // With the 30 kHz carrier this removes the switching ripple from the
     // current-loop feedback instead of aliasing a random point of it.
-    ret = raw_to_voltage(averaged_raw(CHANNEL_A), voltage_a_mv);
+    esp_err_t ret = raw_to_voltage(raw_a, voltage_a_mv);
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = raw_to_voltage(averaged_raw(CHANNEL_B), voltage_b_mv);
+    ret = raw_to_voltage(raw_b, voltage_b_mv);
     if (ret != ESP_OK) {
         return ret;
     }
-    return raw_to_voltage(averaged_raw(CHANNEL_C), voltage_c_mv);
+    return raw_to_voltage(raw_c, voltage_c_mv);
 }
 
 esp_err_t ADCContinuous::read_current_amps(Channel ch, float &current) {

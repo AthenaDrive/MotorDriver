@@ -12,8 +12,9 @@
 // is ready, which costs roughly 50 us per channel in the FOC loop. Continuous
 // mode lets the ADC DMA engine sample the three channels in the background.
 //
-// The FOC loop drains the results that arrived since the previous iteration.
-// Returning the newest sample is wrong here: the phase current carries a
+// The DMA completion callback pushes each finished frame into the per-channel
+// history on core 0; the FOC loop only takes a snapshot. Returning the newest
+// sample is wrong here: the phase current carries a
 // switching ripple from the 30 kHz carrier (several amps peak-to-peak with a
 // low-inductance motor) and the ADC runs asynchronously, so one sample is an
 // arbitrary point on that ripple. The driver therefore keeps the last
@@ -77,10 +78,9 @@ public:
 
     // Refresh the DMA results once and convert all three channels from that
     // same batch. Use this in the FOC loop instead of three read_voltage()
-    // calls, so the pattern is drained only once per iteration. Each value is
-    // the mean of the last AVERAGE_SAMPLES results of that channel, which
-    // removes the switching ripple; the single-channel helpers below still
-    // return the newest sample.
+    // calls. The continuous-mode callback keeps the per-channel averages
+    // fresh, so this only takes a consistent snapshot and applies the
+    // calibration table; it does not touch the ADC DMA ring.
     esp_err_t read_voltage_all(int &voltage_a_mv, int &voltage_b_mv, int &voltage_c_mv);
 
     esp_err_t read_current_amps(Channel ch, float &current);
@@ -93,7 +93,9 @@ private:
     // These run in the FOC hot path. Keep them in IRAM (attribute applied on
     // the definitions in the .cpp) so they do not fight core 0
     // (Ethernet/lwIP) for the shared flash instruction cache.
-    esp_err_t refresh();
+    static bool _onConvDone(adc_continuous_handle_t handle,
+                            const adc_continuous_evt_data_t *edata,
+                            void *user_data);
     esp_err_t raw_to_voltage(int raw, int &voltage_mv) const;
     void accumulate(const uint8_t *data, uint32_t size);
     void push_sample(uint8_t ch, uint16_t raw);
@@ -114,4 +116,9 @@ private:
     uint8_t _avg_count[CHANNEL_COUNT];
     int16_t _mv_lut[CALI_LUT_SIZE];
     uint8_t _seen_mask;
+    // Seqlock written by the ADC completion callback on core 0 and read by
+    // the FOC task on core 1. The callback is the only writer, so a plain
+    // read-modify-write is enough; the reader retries if the sequence changed
+    // while the snapshot was being taken.
+    volatile uint32_t _seq;
 };
