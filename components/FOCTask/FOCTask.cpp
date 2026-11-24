@@ -10,18 +10,25 @@
 
 // --- Temporary FOC loop profiler ------------------------------------------
 // Set to 1 to print per-stage timings over the serial console about once per
-// second. Leave at 0 for normal builds; the extra timestamps cost a few us.
+// second. Leave at 0 for normal builds. Stage timestamps use the CPU cycle
+// counter, so the instrumentation itself costs only a few cycles per stage.
 #define FOC_PROFILE 0
 #if FOC_PROFILE
+// Stage timings are accumulated in CPU cycles (esp_cpu_get_cycle_count) and
+// converted to microseconds only when the window is printed. A cycle read is
+// a few cycles; esp_timer_get_time() costs ~0.8 us on this board and would
+// otherwise add more instrumentation overhead than some of the stages.
 static uint32_t profLoops = 0;
-static uint32_t profEncSum = 0, profEncMax = 0;
-static uint32_t profStateSum = 0, profStateMax = 0;
-static uint32_t profPrepSum = 0, profPrepMax = 0;
+static uint32_t profEncStartSum = 0, profEncStartMax = 0;
 static uint32_t profAdcSum = 0, profAdcMax = 0;
+static uint32_t profPrepSum = 0, profPrepMax = 0;
+static uint32_t profEncWaitSum = 0, profEncWaitMax = 0;
+static uint32_t profStateSum = 0, profStateMax = 0;
+static uint32_t profCascSum = 0, profCascMax = 0;
 static uint32_t profCtrlSum = 0, profCtrlMax = 0;
 static uint32_t profPwmSum = 0, profPwmMax = 0;
 static uint32_t profGvmSum = 0, profGvmMax = 0;
-static uint32_t profTotalSum = 0, profTotalMax = 0;
+static uint32_t profTotalUsSum = 0, profTotalUsMax = 0;
 static uint64_t profCycleSum = 0;
 #endif
 
@@ -206,15 +213,61 @@ IRAM_ATTR void FOCTask::update() {
 #endif
 
 #if FOC_PROFILE
-    int64_t tEnc = 0, tState = 0, tPrep = 0, tAdc = 0, tCtrl = 0, tPwm = 0, tGvm = 0;
+    uint32_t cEncStart = 0, cAdc = 0, cPrep = 0, cEncWait = 0;
+    uint32_t cState = 0, cCasc = 0, cCtrl = 0, cPwm = 0, cGvm = 0;
 #endif
 
-    float angle, cumulativeAngle, velocity, acceleration;
-    if (_encoder.pipeline_read_angle(angle, true) != ESP_OK) {
+    // Start the encoder transfer first. Everything between here and
+    // pipeline_finish_read() runs while the 16-bit SPI frame is in flight.
+    // The AS5047P pipeline already returns the angle sampled at the end of the
+    // previous command, so overlapping the transfer inside this iteration does
+    // not add any angle latency.
+    if (_encoder.pipeline_start_read(true) != ESP_OK) {
         return;
     }
 #if FOC_PROFILE
-    tEnc = esp_timer_get_time();
+    cEncStart = esp_cpu_get_cycle_count();
+#endif
+
+    // The ADC averages are maintained by the continuous-mode completion
+    // callback, so this is just a seqlock snapshot plus the calibration LUT.
+    int mvPhaseA, mvPhaseB, mvPhaseC;
+    const esp_err_t adcStatus = _adc.read_voltage_all(mvPhaseA, mvPhaseB, mvPhaseC);
+#if FOC_PROFILE
+    cAdc = esp_cpu_get_cycle_count();
+#endif
+
+    // GVM values that do not depend on the rotor angle. Reading them under
+    // the encoder transfer hides the loads as well.
+    const float numPolePairs = static_cast<float>(globalVariableManager.getNumPolePairs());
+    const uint32_t drivingMode = globalVariableManager.getDrivingMode();
+    float iqRef = globalVariableManager.getTorqueSetpoint();
+    const float busVoltage = globalVariableManager.getBusVoltage();
+
+    CascadePidConfig cascadeGains{};
+    if (drivingMode == 3 || drivingMode == 4) {
+        cascadeGains.posKp = globalVariableManager.getPositionKp();
+        cascadeGains.posKi = globalVariableManager.getPositionKi();
+        cascadeGains.posKd = globalVariableManager.getPositionKd();
+        cascadeGains.velKp = globalVariableManager.getVelocityKp();
+        cascadeGains.velKi = globalVariableManager.getVelocityKi();
+        cascadeGains.velKd = globalVariableManager.getVelocityKd();
+    }
+
+    CascadePidValues cascadeValues{};
+    cascadeValues.positionSetpoint = globalVariableManager.getPositionSetpoint();
+    cascadeValues.velocitySetpoint = globalVariableManager.getVelocitySetpoint();
+    cascadeValues.torqueSetpoint = iqRef;
+#if FOC_PROFILE
+    cPrep = esp_cpu_get_cycle_count();
+#endif
+
+    float angle, cumulativeAngle, velocity, acceleration;
+    if (_encoder.pipeline_finish_read(angle) != ESP_OK) {
+        return;
+    }
+#if FOC_PROFILE
+    cEncWait = esp_cpu_get_cycle_count();
 #endif
 
     // Feed the estimator a measured dt. t0 was captured before the encoder
@@ -232,7 +285,7 @@ IRAM_ATTR void FOCTask::update() {
     globalVariableManager.setVelocity(velocity);
     globalVariableManager.setAcceleration(acceleration);
 #if FOC_PROFILE
-    tState = esp_timer_get_time();
+    cState = esp_cpu_get_cycle_count();
 #endif
 
     uint16_t drv_fault = 0;
@@ -249,8 +302,6 @@ IRAM_ATTR void FOCTask::update() {
     // }
     // TODO: Not sure if this will be fucky wucky since datatype is 16 bit.
     // globalVariableManager.setErrorFlags((drv_fault << 16) + drv_vgs);
-
-    const float numPolePairs = static_cast<float>(globalVariableManager.getNumPolePairs());
 
     // --- Electrical offset calibration -------------------------------------
     //
@@ -506,34 +557,19 @@ IRAM_ATTR void FOCTask::update() {
     // wrapAngle also does the fmod, and folds negatives up into [0, 2*pi).
     const float elPos = wrapAngle(angle * numPolePairs);
 
-    float iqRef = globalVariableManager.getTorqueSetpoint();
-
     // --- Cascade PID ------------------------------------------------------
     // Mode 3 runs position -> velocity -> torque, mode 4 runs velocity ->
     // torque, and mode 5 keeps the direct torque setpoint. Unimplemented modes
-    // fall through to the torque setpoint as before. The gains come from the
-    // GVM and are only written into the PID objects when they change, so
-    // tuning over TCP preserves the integrator state. This runs every FOC
-    // iteration; dt is in microseconds.
-    const uint32_t drivingMode = globalVariableManager.getDrivingMode();
-
+    // fall through to the torque setpoint as before. The gains were read from
+    // the GVM under the encoder transfer and are only written into the PID
+    // objects when they change, so tuning over TCP preserves the integrator
+    // state. This runs every FOC iteration; dt is in microseconds.
     if (drivingMode == 3 || drivingMode == 4) {
-        CascadePidConfig cascadeGains;
-        cascadeGains.posKp = globalVariableManager.getPositionKp();
-        cascadeGains.posKi = globalVariableManager.getPositionKi();
-        cascadeGains.posKd = globalVariableManager.getPositionKd();
-        cascadeGains.velKp = globalVariableManager.getVelocityKp();
-        cascadeGains.velKi = globalVariableManager.getVelocityKi();
-        cascadeGains.velKd = globalVariableManager.getVelocityKd();
         _cascadePID.setGains(cascadeGains);
     }
 
-    CascadePidValues cascadeValues;
-    cascadeValues.positionSetpoint = globalVariableManager.getPositionSetpoint();
     cascadeValues.position = cumulativeAngle;
-    cascadeValues.velocitySetpoint = globalVariableManager.getVelocitySetpoint();
     cascadeValues.velocity = velocity;
-    cascadeValues.torqueSetpoint = iqRef;
 
     if (_cascadePID.compute(iqRef, _loopTime, drivingMode, cascadeValues) == ESP_OK) {
         if (drivingMode == 3) {
@@ -544,26 +580,15 @@ IRAM_ATTR void FOCTask::update() {
             globalVariableManager.setVelocitySetpoint(cascadeValues.velocitySetpoint);
         }
     }
-
 #if FOC_PROFILE
-    tPrep = esp_timer_get_time();
+    cCasc = esp_cpu_get_cycle_count();
 #endif
 
-    // Each value is the mean of the last four samples of that phase, not the
-    // newest one. At the 30 kHz carrier with a low-inductance motor the
-    // instantaneous phase current swings by several amps, and the ADC is not
-    // synchronised to the PWM, so a single sample is an arbitrary point on
-    // that ripple. The four-sample mean removes it (see
-    // ADCContinuous::DEFAULT_SAMPLE_FREQ_HZ for the rate choice).
-    int mvPhaseA, mvPhaseB, mvPhaseC;
-    if (_adc.read_voltage_all(mvPhaseA, mvPhaseB, mvPhaseC) != ESP_OK) {
+    if (adcStatus != ESP_OK) {
         // No complete set of phase-current samples yet. Skip this iteration
         // rather than running the current loop on stale or zero values.
         return;
     }
-#if FOC_PROFILE
-    tAdc = esp_timer_get_time();
-#endif
 
     // Gain: 50V/V
     // Shunt: 1mOhm
@@ -591,13 +616,13 @@ IRAM_ATTR void FOCTask::update() {
     // using the measured bus voltage, so Kp and Ki are in V/A and V/(A*s)
     // regardless of the supply. dtSeconds is the measured FOC period.
     _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE,
-                              globalVariableManager.getBusVoltage(), dtSeconds,
+                              busVoltage, dtSeconds,
                               currentA, currentBForFoc);
     // _out = _controller.update(iqRef, elPos + _elPosOffset, omegaE,
-    //                           globalVariableManager.getBusVoltage(), dtSeconds,
+    //                           busVoltage, dtSeconds,
     //                           0.0f, 0.0f);
 #if FOC_PROFILE
-    tCtrl = esp_timer_get_time();
+    cCtrl = esp_cpu_get_cycle_count();
 #endif
 
     // Backstop only: the controller already limits the d/q vector to
@@ -617,7 +642,7 @@ IRAM_ATTR void FOCTask::update() {
     _pwm.set_duty(MCPWMDriver::CHANNEL_B, _out.phaseB);
     _pwm.set_duty(MCPWMDriver::CHANNEL_C, _out.phaseC);
 #if FOC_PROFILE
-    tPwm = esp_timer_get_time();
+    cPwm = esp_cpu_get_cycle_count();
 #endif
 
     globalVariableManager.setIa(currentA);
@@ -634,7 +659,7 @@ IRAM_ATTR void FOCTask::update() {
     globalVariableManager.setUdpDataDebugFloat2(_controller.getVqPercent());
     globalVariableManager.setUdpDataDebugFloat3(_controller.isSaturated() ? 1.0f : 0.0f);
 #if FOC_PROFILE
-    tGvm = esp_timer_get_time();
+    cGvm = esp_cpu_get_cycle_count();
 #endif
 
     // globalVariableManager.setIa(static_cast<float>(mvPhaseA - phaseOffsetA));
@@ -660,86 +685,96 @@ IRAM_ATTR void FOCTask::update() {
     }
 
 #if FOC_PROFILE
-    const uint32_t dEnc = static_cast<uint32_t>(tEnc - t0);
-    const uint32_t dState = static_cast<uint32_t>(tState - tEnc);
-    const uint32_t dPrep = static_cast<uint32_t>(tPrep - tState);
-    const uint32_t dAdc = static_cast<uint32_t>(tAdc - tPrep);
-    const uint32_t dCtrl = static_cast<uint32_t>(tCtrl - tAdc);
-    const uint32_t dPwm = static_cast<uint32_t>(tPwm - tCtrl);
-    const uint32_t dGvm = static_cast<uint32_t>(tGvm - tPwm);
-    const uint32_t dTotal = static_cast<uint32_t>(t1 - t0);
-    const uint32_t dCycles = cpuCycles1 - cpuCycles0;
+    const uint32_t dEncStart = cEncStart - cpuCycles0;
+    const uint32_t dAdc = cAdc - cEncStart;
+    const uint32_t dPrep = cPrep - cAdc;
+    const uint32_t dEncWait = cEncWait - cPrep;
+    const uint32_t dState = cState - cEncWait;
+    const uint32_t dCasc = cCasc - cState;
+    const uint32_t dCtrl = cCtrl - cCasc;
+    const uint32_t dPwm = cPwm - cCtrl;
+    const uint32_t dGvm = cGvm - cPwm;
+    const uint32_t dTotalCycles = cpuCycles1 - cpuCycles0;
+    const uint32_t dTotalUs = static_cast<uint32_t>(t1 - t0);
 
-    profCycleSum += dCycles;
-    profEncSum += dEnc;
-    profStateSum += dState;
-    profPrepSum += dPrep;
+    profCycleSum += dTotalCycles;
+    profEncStartSum += dEncStart;
     profAdcSum += dAdc;
+    profPrepSum += dPrep;
+    profEncWaitSum += dEncWait;
+    profStateSum += dState;
+    profCascSum += dCasc;
     profCtrlSum += dCtrl;
     profPwmSum += dPwm;
     profGvmSum += dGvm;
-    profTotalSum += dTotal;
-    if (dEnc > profEncMax) profEncMax = dEnc;
-    if (dState > profStateMax) profStateMax = dState;
-    if (dPrep > profPrepMax) profPrepMax = dPrep;
+    profTotalUsSum += dTotalUs;
+    if (dEncStart > profEncStartMax) profEncStartMax = dEncStart;
     if (dAdc > profAdcMax) profAdcMax = dAdc;
+    if (dPrep > profPrepMax) profPrepMax = dPrep;
+    if (dEncWait > profEncWaitMax) profEncWaitMax = dEncWait;
+    if (dState > profStateMax) profStateMax = dState;
+    if (dCasc > profCascMax) profCascMax = dCasc;
     if (dCtrl > profCtrlMax) profCtrlMax = dCtrl;
     if (dPwm > profPwmMax) profPwmMax = dPwm;
     if (dGvm > profGvmMax) profGvmMax = dGvm;
-    if (dTotal > profTotalMax) profTotalMax = dTotal;
+    if (dTotalUs > profTotalUsMax) profTotalUsMax = dTotalUs;
 
     profLoops++;
     if (profLoops >= 10000) {
-        // Measure the cost of one esp_timer_get_time() call so the stage
-        // numbers above can be interpreted with the instrumentation overhead
-        // in mind.
-        const int64_t tick0 = esp_timer_get_time();
-        for (int i = 0; i < 100; i++) {
-            (void)esp_timer_get_time();
-        }
-        const int64_t tick1 = esp_timer_get_time();
-        const float tickUs = static_cast<float>(tick1 - tick0) / 100.0f;
+        const uint64_t stageCycles =
+            static_cast<uint64_t>(profEncStartSum) + profAdcSum + profPrepSum +
+            profEncWaitSum + profStateSum + profCascSum + profCtrlSum +
+            profPwmSum + profGvmSum;
+        const uint64_t miscCycles =
+            profCycleSum > stageCycles ? profCycleSum - stageCycles : 0;
 
-        const uint32_t miscSum = profTotalSum - profEncSum - profStateSum -
-                                 profPrepSum - profAdcSum - profCtrlSum -
-                                 profPwmSum - profGvmSum;
-
+        const uint32_t loops = profLoops;
+        // The CPU is fixed at 240 MHz when PM is disabled, so one
+        // microsecond is 240 cycles.
+        constexpr uint32_t CYCLES_PER_US = 240;
         const float cpuMhz = static_cast<float>(profCycleSum) /
-                             static_cast<float>(profTotalSum);
+                             static_cast<float>(profTotalUsSum);
+        const uint32_t stageDiv = loops * CYCLES_PER_US;
 
-        printf("FOC prof [core %d] us avg/max over %lu: enc %lu/%lu state %lu/%lu prep %lu/%lu "
-               "adc %lu/%lu ctrl %lu/%lu pwm %lu/%lu gvm %lu/%lu misc %lu total %lu/%lu "
-               "tick %.2f MHz %.1f\n",
+        printf("FOC prof [core %d] us avg/max over %lu: encS %lu/%lu adc %lu/%lu prep %lu/%lu "
+               "encW %lu/%lu state %lu/%lu casc %lu/%lu ctrl %lu/%lu pwm %lu/%lu gvm %lu/%lu "
+               "misc %lu total %lu/%lu MHz %.1f\n",
                xPortGetCoreID(),
-               static_cast<unsigned long>(profLoops),
-               static_cast<unsigned long>(profEncSum / profLoops),
-               static_cast<unsigned long>(profEncMax),
-               static_cast<unsigned long>(profStateSum / profLoops),
-               static_cast<unsigned long>(profStateMax),
-               static_cast<unsigned long>(profPrepSum / profLoops),
-               static_cast<unsigned long>(profPrepMax),
-               static_cast<unsigned long>(profAdcSum / profLoops),
-               static_cast<unsigned long>(profAdcMax),
-               static_cast<unsigned long>(profCtrlSum / profLoops),
-               static_cast<unsigned long>(profCtrlMax),
-               static_cast<unsigned long>(profPwmSum / profLoops),
-               static_cast<unsigned long>(profPwmMax),
-               static_cast<unsigned long>(profGvmSum / profLoops),
-               static_cast<unsigned long>(profGvmMax),
-               static_cast<unsigned long>(miscSum / profLoops),
-               static_cast<unsigned long>(profTotalSum / profLoops),
-               static_cast<unsigned long>(profTotalMax),
-               tickUs, cpuMhz);
+               static_cast<unsigned long>(loops),
+               static_cast<unsigned long>(profEncStartSum / stageDiv),
+               static_cast<unsigned long>(profEncStartMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profAdcSum / stageDiv),
+               static_cast<unsigned long>(profAdcMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profPrepSum / stageDiv),
+               static_cast<unsigned long>(profPrepMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profEncWaitSum / stageDiv),
+               static_cast<unsigned long>(profEncWaitMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profStateSum / stageDiv),
+               static_cast<unsigned long>(profStateMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profCascSum / stageDiv),
+               static_cast<unsigned long>(profCascMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profCtrlSum / stageDiv),
+               static_cast<unsigned long>(profCtrlMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profPwmSum / stageDiv),
+               static_cast<unsigned long>(profPwmMax / CYCLES_PER_US),
+               static_cast<unsigned long>(profGvmSum / stageDiv),
+               static_cast<unsigned long>(profGvmMax / CYCLES_PER_US),
+               static_cast<unsigned long>(miscCycles / (static_cast<uint64_t>(loops) * CYCLES_PER_US)),
+               static_cast<unsigned long>(profTotalUsSum / loops),
+               static_cast<unsigned long>(profTotalUsMax),
+               cpuMhz);
 
         profLoops = 0;
-        profEncSum = profEncMax = 0;
-        profStateSum = profStateMax = 0;
-        profPrepSum = profPrepMax = 0;
+        profEncStartSum = profEncStartMax = 0;
         profAdcSum = profAdcMax = 0;
+        profPrepSum = profPrepMax = 0;
+        profEncWaitSum = profEncWaitMax = 0;
+        profStateSum = profStateMax = 0;
+        profCascSum = profCascMax = 0;
         profCtrlSum = profCtrlMax = 0;
         profPwmSum = profPwmMax = 0;
         profGvmSum = profGvmMax = 0;
-        profTotalSum = profTotalMax = 0;
+        profTotalUsSum = profTotalUsMax = 0;
         profCycleSum = 0;
     }
 #endif

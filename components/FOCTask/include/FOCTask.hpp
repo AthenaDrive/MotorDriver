@@ -78,7 +78,7 @@ private:
     // together with the Ethernet tasks.
     TaskHandle_t _taskHandle = nullptr;
 
-    int64_t _loopTime = 100; // Loop time in us.
+    int64_t _loopTime = 50; // Loop time in us.
 
     // Start timestamp of the previous state-estimation sample. The PLL uses a
     // measured dt instead of the nominal timer period, so missed notifications
