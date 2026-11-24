@@ -73,6 +73,7 @@ Everything important is in `main/` and `components/`. `build/` and
 | `main/Config.hpp` | I2C addresses, INA238 calibration, IP/port/startup constants |
 | `main/CMakeLists.txt` | `main` component requirements |
 | `TODO.md` | Actionable next-iteration checklist (PCB erratum, firmware TODOs) |
+| `CommunicationProtocol.csv` | Ground truth for the UDP/TCP bit layout (see §6) |
 | `components/GlobalVariableManager/` | Generated shared state (`Variables.txt` is the source of truth) |
 | `components/FOCTask/` | FOC task, startup/alignment state machine, current sensing |
 | `components/Controller/` | Clarke/Park transforms and d/q PI current loop |
@@ -85,6 +86,7 @@ Everything important is in `main/` and `components/`. `build/` and
 | `components/ADCContinuous/` | Phase-current ADC, ADC1 continuous/DMA (active path) |
 | `components/ADCOneshot/` | Older blocking phase-current driver, no longer used by FOC |
 | `components/EthernetTask/` | W5500 Ethernet, daisy-chain routing, UDP/TCP protocol |
+| `components/EthernetTask/Protocol.*` | Generated wire format (`GenerateProtocol.py`); never edit by hand |
 | `components/EthernetTask/Discovery.*` | Auto-IP position discovery |
 | `components/W5500/` | Local dual-W5500 wrapper around `espressif/w5500` |
 | `components/I2CBase/`, `SPIBase/` | Shared bus wrappers with ref counting |
@@ -101,7 +103,8 @@ resurrect references to them; the remaining component list is the current firmwa
 - Board parts / schematic: `AthenaDrive/PCB` repo (`BOM.xlsx`, board v3).
 - Network/startup constants: `main/Config.hpp`.
 - Shared state: `components/GlobalVariableManager/Variables.txt`.
-- Wire protocol: `components/EthernetTask/EthernetTask.cpp` (not the structs).
+- Wire protocol: `CommunicationProtocol.csv` at the repo root (generated into
+  `components/EthernetTask/Protocol.cpp`; see §6).
 - Control math: `components/Controller/` and `components/FOCTask/`.
 
 ---
@@ -176,8 +179,9 @@ continuous/DMA ring buffer, which the FOC loop drains once per iteration.
    dedicated `foc` task (core 1, priority 22, 8 KB stack), then starts the 100 µs
    esp_timer. The timer callback only notifies that task.
 5. `EthernetTask` constructor initializes both W5500s and assigns temporary IPs;
-   `begin()` runs discovery, assigns final IPs, starts the responder, and spawns the
-   four socket tasks.
+   `begin()` runs discovery, assigns final IPs, starts the responder, starts the
+   DHCP server on ETH_0 when this board is position 0, and spawns the four
+   socket tasks.
 6. `app_main` enters the sensor loop. It never exits.
 
 ### FOC startup state machine
@@ -269,9 +273,9 @@ Gotchas:
   generated header. Changing it changes commutation; confirm with the user first.
 - The script only constructs float defaults; integer/bool defaults come from the
   generated in-class initializers.
-- If a new variable must be exposed over Ethernet, also add it to the protocol
-  switches in `EthernetTask.cpp` and (for documentation/static checks) to
-  `CommunicationConfig.hpp`.
+- If a new variable must be exposed over Ethernet, add it to
+  `CommunicationProtocol.csv` and regenerate (see §6); do not hand-edit
+  `Protocol.cpp`/`Protocol.hpp`.
 
 ---
 
@@ -294,28 +298,52 @@ IP scheme with auto-IP enabled (`Config.hpp`):
 
 | Node | ETH_0 (upstream) | ETH_1 (downstream) |
 | --- | --- | --- |
-| PC | `192.168.0.1` | — |
+| PC | DHCP client (gets `192.168.0.3`+), or `192.168.0.1` static | — |
 | Board 0 | `192.168.0.2` | `192.168.0.3` |
 | Board 1 | `192.168.0.4` | `192.168.0.5` |
 | Board N | `192.168.0.(2N+2)` | `192.168.0.(2N+3)` |
+
+Board 0 runs a DHCP server on ETH_0 (`W5500_DHCP_SERVER` / `cDhcpServer`) so
+the PC can stay on "obtain an IP automatically". esp_netif derives the lease
+pool from the interface's own IP, so `.2` serves `.3` and up. Only board 0 does
+this; the board-to-board links stay static. The router option is suppressed
+(there is no gateway on that link); the DNS option still points at the board,
+which is harmless but gives a PC on that link no name resolution.
+
+The board does **not** assume the PC is `192.168.0.1`: `udp_as_peripheral_task`
+learns the upstream peer from the first UDP packet, and `tcp_as_peripheral_task`
+from the TCP connection, storing it in `_controllerIp`. `_controllerDestIP`
+(`.1` for board 0, the previous board's ETH_1 further down) is only the
+bootstrap value until something is received. A manually configured PC still
+works, and so does a DHCP one. Because telemetry is unicast to the last sender,
+a receive-only PC tool must send at least one packet (or keep the PC at
+`192.168.0.1`, the bootstrap destination) before it sees telemetry.
 
 Discovery runs on **UDP port 5003**:
 
 - Magic `0x41544C41` ("ATLA"), version 1, packet types request/response.
 - A board with no upstream link becomes position 0.
 - A board that receives a response becomes `upstream_position + 1`.
+- A board that is still resolving its own position answers downstream requests
+  with `DISC_POS_UNKNOWN` (0xFF). The asker then extends its deadline by
+  `DISC_UNKNOWN_GRACE_MS` (10 s) instead of defaulting to 0. This removes the
+  boot race where two boards starting together both became position 0.
+- A board that heard `DISC_POS_UNKNOWN` but never got a real answer still
+  defaults to 0, and logs a WARNING (possible duplicate IP).
 - After discovery, a responder task on ETH_1 answers downstream boards.
 - With `W5500_USE_AUTO_IP 0`, position is forced to 0 and the static IPs are used.
 
 ### UDP telemetry and commands (port 5000)
 
-Wire format is hand-packed in `EthernetTask.cpp`:
-`uint32_t header` (bitmask) followed by **4 bytes per set bit**, in bit order.
-Bits are little-endian native ESP32 values. If a bit is set but has no `case`, the
-code still advances 4 bytes and sends whatever was in the buffer — **never set
-undefined bits**.
+The wire format is generated from `CommunicationProtocol.csv` into
+`components/EthernetTask/Protocol.cpp` (`encode_udp_data`, `decode_udp_command`).
+It is `uint32_t header` (bitmask) followed by **4 bytes per set bit**, in bit
+order, little-endian native ESP32 values. A field's byte position is derived from
+the header (`4 + 4*popcount(header & bits-below)`), so no caller tracks an offset.
+Set bits with no mapping are zero-filled on encode and skipped on decode; they
+never send whatever happened to be in the buffer.
 
-Board → upstream telemetry:
+Board → upstream telemetry (`udpAsPeripheralHeader`, TCP command bit 19):
 
 | Bit | Field |
 | --- | --- |
@@ -329,14 +357,12 @@ Board → upstream telemetry:
 | 7 | phase current C |
 | 8 | bus current |
 | 9 | bus voltage |
-| 10 | error register (currently hard-coded 0) |
+| 10 | `errorFlags` (currently hard-coded 0) |
 | 11 | FOC loop time |
 | 12 | secondary loop time |
 | 13–15 | accel X/Y/Z |
 | 16–18 | gyro X/Y/Z |
-| 24–27 | `udpDataDebugFloat0..3` |
-| 28–29 | `udpDataDebugInt0..1` |
-| 30–31 | `udpDataDebugUint0..1` |
+| 19–31 | reserved |
 
 Upstream → board command:
 
@@ -346,9 +372,17 @@ Upstream → board command:
 | 1 | `velocitySetpoint` |
 | 2 | `positionSetpoint` |
 | 3 | `drivingMode` |
-| 24–27 | `udpCommandDebugFloat0..3` |
-| 28–29 | `udpCommandDebugInt0..1` |
-| 30–31 | `udpCommandDebugUint0..1` |
+| 4 | reserved ("Max torque?", not implemented) |
+| 5 | reserved ("Max velocity?", not implemented) |
+| 6–31 | reserved |
+
+To change the protocol: edit `CommunicationProtocol.csv`, then run
+`python components/EthernetTask/GenerateProtocol.py` from the repo root. The
+generator maps every row name to a GVM variable and checks the declared type
+against `Variables.txt` and the generated accessors, refusing to emit code on a
+mismatch (unknown name, wrong type, stale GVM). `--check` validates without
+writing. `Protocol.cpp`/`Protocol.hpp` are generated — never hand-edit them.
+
 
 ### TCP framing (port 5001)
 
@@ -368,20 +402,27 @@ uint32_t header   // bitmask inside the payload
 - `header` bit 0 selects direction in the server:
   - **bit 0 set = command** (PC → board)
   - **bit 0 clear = data request** (board → PC)
-- Command bits (TCP server): 1 torque setpoint, 2 torque Kp, 3 torque Ki,
-  5 torque limit, 6 velocity setpoint, 7–9 velocity Kp/Ki/Kd, 10 velocity limit,
-  11 position setpoint, 12–14 position Kp/Ki/Kd, 15 driving mode,
-  16 bus current limit, 17 phase current limit, 18 pole pairs,
-  19 UDP telemetry header, 20 clear error flags (still consumes 4 bytes),
-  21 LED status, 24–31 TCP command debug values.
+- Command bits: 1 torque setpoint, 2–4 torque Kp/Ki/Kd, 5 torque limit,
+  6 velocity setpoint, 7–9 velocity Kp/Ki/Kd, 10 velocity limit, 11 position
+  setpoint, 12–14 position Kp/Ki/Kd, 15 driving mode, 16 current limit bus,
+  17 current limit phase, 18 pole pairs, 19 UDP telemetry header,
+  20 clear error flags (the value is ignored), 21–24 `regenCurrentStart`,
+  `regenCurrentEnd`, `busVoltageStart`, `busVoltageEnd`.
 - Data-request bits: 1 bus voltage, 2 bus current, 4 button status,
-  5 bus current limit, 6 phase current limit, 7 board state, 8 driving mode,
-  9 pole pairs, 10 phase RMS voltage, 11 error flags, 12 temperature,
-  24–31 TCP data debug values.
-- Bits with no `case` still consume 4 bytes. Keep both ends of the protocol in sync.
-- `CommunicationConfig.hpp` defines structs and `offsetof` arrays for documentation
-  and static checks. **It is not the serializer.** The actual wire format is the
-  `switch` code in `EthernetTask.cpp`; update both when the protocol changes.
+  5 current limit bus, 6 current limit phase, 7 board state, 8 driving mode,
+  9 pole pairs, 10 phase RMS voltage, 11 error flags, 12 temperature.
+- Bit 3 is unused in both TCP directions; 25–31 are unused.
+- On a data request the header only *selects* fields and carries no values of its
+  own, so the relayed bytes start right after the 4-byte header. On a command
+  frame bit 0 is also valueless, so the caller advances
+  `4 + 4*popcount(header & ~1)`.
+- Set bits with no mapping are zero-filled (encode) or skipped (decode).
+- The server reads into a fixed 2048-byte payload buffer. A frame larger than
+  that, a bad identifier, or a short frame drops the connection instead of
+  leaving the stream desynchronised.
+- `Protocol.cpp`/`Protocol.hpp` are generated from `CommunicationProtocol.csv`;
+  `encode_tcp_data` / `decode_tcp_command` are the only serializers. Keep the PC
+  end in sync with the CSV.
 
 ### Socket tasks
 
@@ -390,6 +431,8 @@ uint32_t header   // bitmask inside the payload
 - `tcp_as_peripheral_task` (ETH_0) is the server the PC connects to.
 - `tcp_as_controller_task` (ETH_1) is the client that relays to the next board.
 - All four are 8 KB stacks, priority 12, pinned to core 0, with 10 ms polling.
+  The TCP server is 12 KB because it holds a fixed 2 KB frame buffer plus the
+  1 KB response buffer.
 - Sockets are bound to a netif with `SO_BINDTODEVICE`.
 
 ---
@@ -598,14 +641,13 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
 - **Downstream Ethernet hardware erratum:** board v3 port 2 has the W5500 #1 RX
   termination error described in §8. ETH_1 cannot link until that is reworked or
   fixed in the next PCB revision. Do not chase this as a software bug.
-- **Discovery race:** if two boards boot simultaneously, the downstream board can
-  time out before the upstream responder starts (responder is up at ~7.5 s; the
-  current discovery window ends at ~7 s) and both boards default to position 0.
-- **Task-config lifetime:** the `_TaskConfigUDP` / `_TaskConfigTCP` structs are
-  stack locals in `EthernetTask::begin()` passed by pointer to tasks. The 1 s
-  delay hides it, but make the storage static or heap-owned.
-- **TCP server VLA:** `uint8_t message[lengthPrefix & 0xFFFF]` in
-  `tcp_as_peripheral_task` can overflow the 8 KB task stack.
+- **Discovery is still sequential:** the UNKNOWN reply removed the duplicate-IP
+  race, but a board cannot know its index before its upstream resolves. A
+  downstream board therefore waits up to `DISC_UNKNOWN_GRACE_MS` (10 s) and a
+  broken upstream still falls back to position 0 with a WARNING.
+- **Relay buffers cap the chain:** the four GVM buffers are 1024 B each, so a
+  frame longer than that is truncated when relayed. With one 4-byte-per-field
+  section per board the practical chain length is roughly 8-10 boards.
 - **FOC loop timing:** runs at a 100 µs period (10 kHz). With the 32 KB I-cache
   and the IRAM pass, the profiled loop is ~32 µs average / ~47 µs max. The
   profiler itself costs ~6-7 µs (7 intermediate `esp_timer_get_time()` calls at

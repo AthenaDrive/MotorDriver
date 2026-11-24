@@ -82,6 +82,7 @@ extern "C" void app_main(void) {
         .cUseAutoIP = W5500_USE_AUTO_IP,
         .cDiscRetries = DISC_RETRIES,
         .cDiscTimeoutMs = DISC_TIMEOUT_MS,
+        .cDhcpServer = (W5500_DHCP_SERVER != 0),
     };
     EthernetTask ethernetTask{ethConfig};
     ethernetTask.begin();

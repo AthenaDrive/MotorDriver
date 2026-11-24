@@ -93,11 +93,23 @@ public:
     uint32_t getDrivingMode();
     void setDrivingMode(uint32_t value);
 
-    uint32_t getCurrentLimitPhase();
-    void setCurrentLimitPhase(uint32_t value);
+    float getCurrentLimitPhase();
+    void setCurrentLimitPhase(float value);
 
-    uint32_t getCurrentLimitBus();
-    void setCurrentLimitBus(uint32_t value);
+    float getCurrentLimitBus();
+    void setCurrentLimitBus(float value);
+
+    float getRegenCurrentStart();
+    void setRegenCurrentStart(float value);
+
+    float getRegenCurrentEnd();
+    void setRegenCurrentEnd(float value);
+
+    float getBusVoltageStart();
+    void setBusVoltageStart(float value);
+
+    float getBusVoltageEnd();
+    void setBusVoltageEnd(float value);
 
     float getPhaseRMSVoltage();
     void setPhaseRMSVoltage(float value);
@@ -326,8 +338,12 @@ private:
     std::atomic_uint32_t _busCurrent{0};
     std::atomic_uint32_t _temperature{0};
     std::atomic_uint32_t _drivingMode{0};
-    std::atomic_uint32_t _currentLimitPhase{1000};
-    std::atomic_uint32_t _currentLimitBus{5000};
+    std::atomic_uint32_t _currentLimitPhase{0};
+    std::atomic_uint32_t _currentLimitBus{0};
+    std::atomic_uint32_t _regenCurrentStart{0};
+    std::atomic_uint32_t _regenCurrentEnd{0};
+    std::atomic_uint32_t _busVoltageStart{0};
+    std::atomic_uint32_t _busVoltageEnd{0};
     std::atomic_uint32_t _phaseRMSVoltage{0};
     std::atomic_uint32_t _Ia{0};
     std::atomic_uint32_t _Ib{0};

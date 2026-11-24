@@ -130,23 +130,30 @@ static int recv_resp(int sock, int timeout_ms) {
     return (int)pkt.position;
 }
 
-// Check if a REQ arrived on the ETH_0 listener socket
-// Returns true if at least one REQ was received (and discarded for now)
-static bool check_req_on_eth0(int sock, int timeout_ms) {
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(sock, &fds);
-    struct timeval tv = { timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
+// Answer a downstream board's REQ. While our own position is still unknown we
+// reply DISC_POS_UNKNOWN: that tells the downstream board an upstream device
+// exists, so it keeps waiting instead of defaulting to position 0 and
+// colliding with us (the boot race described in AGENTS.md section 9).
+static void reply_to_downstream(int sock, int position) {
+    DiscoveryPacket req;
+    struct sockaddr_in from;
+    socklen_t fromlen = sizeof(from);
+    ssize_t n = recvfrom(sock, &req, sizeof(req), 0, (struct sockaddr *)&from, &fromlen);
+    if (n < (ssize_t)sizeof(req)) return;
+    if (req.magic != DISCOVERY_MAGIC || req.type != DISC_REQ) return;
 
-    int sel = select(sock + 1, &fds, NULL, NULL, &tv);
-    if (sel <= 0) return false;
+    DiscoveryPacket resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.magic    = DISCOVERY_MAGIC;
+    resp.type     = DISC_RESP;
+    resp.version  = DISCOVERY_VER;
+    resp.position = (position < 0) ? DISC_POS_UNKNOWN : (uint8_t)position;
 
-    char buf[sizeof(DiscoveryPacket)];
-    ssize_t n = recvfrom(sock, buf, sizeof(buf), 0, NULL, NULL);
-    if (n < (ssize_t)sizeof(DiscoveryPacket)) return false;
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_ETH);
+    memcpy(resp.sender_mac, mac, 6);
 
-    DiscoveryPacket *pkt = (DiscoveryPacket *)buf;
-    return (pkt->magic == DISCOVERY_MAGIC && pkt->type == DISC_REQ);
+    sendto(sock, &resp, sizeof(resp), 0, (struct sockaddr *)&from, fromlen);
 }
 
 int discovery_run(int retries, int timeout_ms) {
@@ -177,18 +184,19 @@ int discovery_run(int retries, int timeout_ms) {
     }
 
     int position = -1;
+    bool upstream_alive = false;
 
-    auto try_recv = [&](int sock) -> bool {
-        int upstream_pos = recv_resp(sock, 0);
-        if (upstream_pos >= 0) {
-            position = upstream_pos + 1;
-            printf("DISC: upstream pos=%d -> my position=%d\n", upstream_pos, position);
-            return true;
+    // Fixed wall-clock budget instead of an attempt count, so the deadline can
+    // be extended when an upstream board answers "not resolved yet".
+    const int64_t loop_start_us = esp_timer_get_time();
+    int64_t deadline_us = loop_start_us + (int64_t)(retries + 4) * timeout_ms * 1000;
+
+    for (int attempt = 0; position < 0; attempt++) {
+        if (esp_timer_get_time() >= deadline_us) {
+            printf("DISC: discovery window expired\n");
+            break;
         }
-        return false;
-    };
 
-    for (int attempt = 0; attempt < retries; attempt++) {
         send_req(sock_up);
 
         fd_set readfds;
@@ -201,30 +209,39 @@ int discovery_run(int retries, int timeout_ms) {
                          &readfds, NULL, NULL, &tv);
 
         if (sel > 0) {
-            if (FD_ISSET(sock_up, &readfds) && try_recv(sock_up)) break;
             if (FD_ISSET(sock_down, &readfds)) {
-                check_req_on_eth0(sock_down, 0);
+                reply_to_downstream(sock_down, position);
+            }
+            if (FD_ISSET(sock_up, &readfds)) {
+                int upstream_pos = recv_resp(sock_up, 0);
+                if (upstream_pos == DISC_POS_UNKNOWN) {
+                    if (!upstream_alive) {
+                        upstream_alive = true;
+                        const int64_t extended =
+                            esp_timer_get_time() + DISC_UNKNOWN_GRACE_MS * 1000;
+                        if (extended > deadline_us) deadline_us = extended;
+                        printf("DISC: upstream board is still booting, waiting up to %dms\n",
+                               DISC_UNKNOWN_GRACE_MS);
+                    }
+                } else if (upstream_pos >= 0) {
+                    position = upstream_pos + 1;
+                    printf("DISC: upstream pos=%d -> my position=%d\n", upstream_pos, position);
+                    break;
+                }
             }
         }
 
-        printf("DISC: attempt %d/%d, no response\n", attempt + 1, retries);
-    }
-
-    if (position < 0) {
-        for (int extra = 0; extra < 4 && position < 0; extra++) {
-            send_req(sock_up);
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(sock_up, &readfds);
-            struct timeval tv = { timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
-            int sel = select(sock_up + 1, &readfds, NULL, NULL, &tv);
-            if (sel > 0) try_recv(sock_up);
-        }
+        printf("DISC: attempt %d, no position yet\n", attempt + 1);
     }
 
     if (position < 0) {
         position = 0;
-        printf("DISC: no upstream found -> position 0\n");
+        if (upstream_alive) {
+            printf("DISC: WARNING upstream never resolved, defaulting to 0 "
+                   "(possible duplicate IP)\n");
+        } else {
+            printf("DISC: no upstream found -> position 0\n");
+        }
     }
 
     close(sock_up);

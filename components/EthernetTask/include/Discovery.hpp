@@ -8,6 +8,13 @@
 #define DISC_REQ  0
 #define DISC_RESP 1
 
+// A responder that has not resolved its own position yet answers with this
+// instead of a number. The asker then keeps waiting instead of defaulting to 0.
+#define DISC_POS_UNKNOWN    0xFF
+// Extra time an asker grants after hearing DISC_POS_UNKNOWN, so it outlives the
+// upstream board's own discovery window.
+#define DISC_UNKNOWN_GRACE_MS 10000
+
 #pragma pack(push, 1)
 struct DiscoveryPacket {
     uint32_t magic;

@@ -23,6 +23,12 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_busVoltage, 0);
     atomic_store_float(_busCurrent, 0);
     atomic_store_float(_temperature, 0);
+    atomic_store_float(_currentLimitPhase, 1000.0f);
+    atomic_store_float(_currentLimitBus, 5000.0f);
+    atomic_store_float(_regenCurrentStart, 0.0f);
+    atomic_store_float(_regenCurrentEnd, 0.0f);
+    atomic_store_float(_busVoltageStart, 0.0f);
+    atomic_store_float(_busVoltageEnd, 0.0f);
     atomic_store_float(_phaseRMSVoltage, 0.0f);
     atomic_store_float(_Ia, 0.0f);
     atomic_store_float(_Ib, 0.0f);
@@ -338,20 +344,52 @@ IRAM_ATTR void GlobalVariableManager::setDrivingMode(uint32_t value) {
     _drivingMode.store(value, std::memory_order_relaxed);
 }
 
-IRAM_ATTR uint32_t GlobalVariableManager::getCurrentLimitPhase() {
-    return _currentLimitPhase.load(std::memory_order_relaxed);
+IRAM_ATTR float GlobalVariableManager::getCurrentLimitPhase() {
+    return atomic_load_float(_currentLimitPhase);
 }
 
-IRAM_ATTR void GlobalVariableManager::setCurrentLimitPhase(uint32_t value) {
-    _currentLimitPhase.store(value, std::memory_order_relaxed);
+IRAM_ATTR void GlobalVariableManager::setCurrentLimitPhase(float value) {
+    atomic_store_float(_currentLimitPhase, value);
 }
 
-IRAM_ATTR uint32_t GlobalVariableManager::getCurrentLimitBus() {
-    return _currentLimitBus.load(std::memory_order_relaxed);
+IRAM_ATTR float GlobalVariableManager::getCurrentLimitBus() {
+    return atomic_load_float(_currentLimitBus);
 }
 
-IRAM_ATTR void GlobalVariableManager::setCurrentLimitBus(uint32_t value) {
-    _currentLimitBus.store(value, std::memory_order_relaxed);
+IRAM_ATTR void GlobalVariableManager::setCurrentLimitBus(float value) {
+    atomic_store_float(_currentLimitBus, value);
+}
+
+IRAM_ATTR float GlobalVariableManager::getRegenCurrentStart() {
+    return atomic_load_float(_regenCurrentStart);
+}
+
+IRAM_ATTR void GlobalVariableManager::setRegenCurrentStart(float value) {
+    atomic_store_float(_regenCurrentStart, value);
+}
+
+IRAM_ATTR float GlobalVariableManager::getRegenCurrentEnd() {
+    return atomic_load_float(_regenCurrentEnd);
+}
+
+IRAM_ATTR void GlobalVariableManager::setRegenCurrentEnd(float value) {
+    atomic_store_float(_regenCurrentEnd, value);
+}
+
+IRAM_ATTR float GlobalVariableManager::getBusVoltageStart() {
+    return atomic_load_float(_busVoltageStart);
+}
+
+IRAM_ATTR void GlobalVariableManager::setBusVoltageStart(float value) {
+    atomic_store_float(_busVoltageStart, value);
+}
+
+IRAM_ATTR float GlobalVariableManager::getBusVoltageEnd() {
+    return atomic_load_float(_busVoltageEnd);
+}
+
+IRAM_ATTR void GlobalVariableManager::setBusVoltageEnd(float value) {
+    atomic_store_float(_busVoltageEnd, value);
 }
 
 IRAM_ATTR float GlobalVariableManager::getPhaseRMSVoltage() {

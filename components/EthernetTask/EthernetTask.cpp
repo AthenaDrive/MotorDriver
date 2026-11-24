@@ -1,9 +1,9 @@
 #include <stdio.h>
-#include <bitset>
 
 #include "EthernetTask.hpp"
 #include "Discovery.hpp"
 #include "GlobalVariableManager.hpp"
+#include "Protocol.hpp"
 
 #include "esp_timer.h"
 #include "esp_event.h"
@@ -13,6 +13,29 @@
 #include "sys/select.h"
 #include "lwip/netif.h"
 #include <net/if.h>
+
+// Remember the upstream peer seen in a packet (PC on board 0, previous board's
+// ETH_1 further down the chain). 0 and broadcast/multicast are not usable as a
+// telemetry destination and are ignored.
+static void learn_controller_ip(std::atomic_uint32_t *slot, const struct sockaddr_in &peer) {
+    if (!slot) {
+        return;
+    }
+    const uint32_t addr = peer.sin_addr.s_addr;   // network byte order
+    if (addr == 0 || addr == 0xFFFFFFFFu) {
+        return;
+    }
+    if ((ntohl(addr) >> 28) == 0xEu) {            // 224.0.0.0/4
+        return;
+    }
+    const uint32_t previous = slot->exchange(addr, std::memory_order_relaxed);
+    if (previous != addr) {
+        const uint32_t host = ntohl(addr);
+        printf("ETH: controller IP learned: %u.%u.%u.%u\n",
+               (unsigned)(host >> 24) & 0xFFu, (unsigned)(host >> 16) & 0xFFu,
+               (unsigned)(host >> 8) & 0xFFu, (unsigned)host & 0xFFu);
+    }
+}
 
 static void bind_socket_to_netif(int sock, const char *ifKey) {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey(ifKey);
@@ -78,7 +101,7 @@ void udp_as_controller_task(void *arg) {
             sendto(sock, sendBuffer, sendBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
     close(sock);
@@ -111,6 +134,7 @@ void udp_as_peripheral_task(void *arg) {
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_addr.s_addr = inet_addr(UDP_DEST_IP);
     dest_addr.sin_port = htons(UDP_DEST_PORT);
+    const uint32_t fallbackDest = dest_addr.sin_addr.s_addr;
 
     printf("UDP sender %s -> %s:%d\n", bindIP, UDP_DEST_IP, UDP_DEST_PORT);
 
@@ -118,275 +142,48 @@ void udp_as_peripheral_task(void *arg) {
     constexpr uint32_t maxRecvBuffer = packetBufferSize * 16;
     uint8_t packet[packetBufferSize + maxRecvBuffer];
 
-    uint32_t header;
-    uint32_t offset = 0;
     uint32_t recvBufferSize;
-    static uint32_t iteration = 0;
-
-    uint32_t recvHeader;
-    uint32_t recvOffset = 0;
     uint8_t recvPacket[packetBufferSize + maxRecvBuffer];
 
     while (1) {
-        offset = 0;
+        // Telemetry: our header and values, then the opaque frames relayed up
+        // from the boards downstream of us.
+        uint32_t header = globalVariableManager.getUdpAsPeripheralHeader();
+        uint32_t ownSize = protocol::encode_udp_data(header, packet, sizeof(packet));
+        if (ownSize == 0) {
+            printf("UDP[%s]: telemetry does not fit in %u bytes\n", bindIP, (unsigned)sizeof(packet));
+        } else {
+            // Follow the peer we last heard from; the static scheme is only the
+            // bootstrap value (the PC's address depends on DHCP).
+            const uint32_t upstream = args->controllerIp->load(std::memory_order_relaxed);
+            dest_addr.sin_addr.s_addr = upstream ? upstream : fallbackDest;
 
-        header = globalVariableManager.getUdpAsPeripheralHeader();
-
-        memcpy(packet + offset, &header, 4);
-        offset += 4;
-
-        std::bitset<32> headerBits(header);
-        for (int i = 0; i < 32; i++) {
-            if (headerBits[i]) {
-                switch (i)
-                {
-                    case 0: {
-                        uint32_t time = static_cast<uint32_t>(esp_timer_get_time() / 1000);
-                        memcpy(packet + offset, &time, 4);
-                    } break;
-
-                    case 1: {
-                        float pos = globalVariableManager.getAngle();
-                        memcpy(packet + offset, &pos, 4);
-                    } break;
-
-                    case 2: {
-                        float vel = globalVariableManager.getVelocity();
-                        memcpy(packet + offset, &vel, 4);
-                    } break;
-
-                    case 3: {
-                        float acc = globalVariableManager.getAcceleration();
-                        memcpy(packet + offset, &acc, 4);
-                    } break;
-
-                    case 4: {
-                        float torque = globalVariableManager.getTargetTorque();
-                        memcpy(packet + offset, &torque, 4);
-                    } break;
-
-                    case 5: {
-                        float phaseA = globalVariableManager.getIa();
-                        memcpy(packet + offset, &phaseA, 4);
-                    } break;
-
-                    case 6: {
-                        float phaseB = globalVariableManager.getIb();
-                        memcpy(packet + offset, &phaseB, 4);
-                    } break;
-
-                    case 7: {
-                        float phaseC = globalVariableManager.getIc();
-                        memcpy(packet + offset, &phaseC, 4);
-                    } break;
-
-                    case 8: {
-                        float busCurrent = globalVariableManager.getBusCurrent();
-                        memcpy(packet + offset, &busCurrent, 4);
-                    } break;
-
-                    case 9: {
-                        float busVoltage = globalVariableManager.getBusVoltage();
-                        memcpy(packet + offset, &busVoltage, 4);
-                    } break;
-
-                    case 10: {
-                        uint32_t errorRegister = 0;
-                        memcpy(packet + offset, &errorRegister, 4);
-                    } break;
-
-                    case 11: {
-                        uint32_t loopTimeFOC = globalVariableManager.getAvgLoopTimeFOC();
-                        memcpy(packet + offset, &loopTimeFOC, 4);
-                    } break;
-
-                    case 12: {
-                        uint32_t loopTimeSecondary = globalVariableManager.getAvgLoopTimeSecondary();
-                        memcpy(packet + offset, &loopTimeSecondary, 4);
-                    } break;
-
-                    case 13: {
-                        float accX = globalVariableManager.getAccX();
-                        memcpy(packet + offset, &accX, 4);
-                    } break;
-
-                    case 14: {
-                        float accY = globalVariableManager.getAccY();
-                        memcpy(packet + offset, &accY, 4);
-                    } break;
-
-                    case 15: {
-                        float accZ = globalVariableManager.getAccZ();
-                        memcpy(packet + offset, &accZ, 4);
-                    } break;
-
-                    case 16: {
-                        float gyroX = globalVariableManager.getGyroX();
-                        memcpy(packet + offset, &gyroX, 4);
-                    } break;
-
-                    case 17: {
-                        float gyroY = globalVariableManager.getGyroY();
-                        memcpy(packet + offset, &gyroY, 4);
-                    } break;
-
-                    case 18: {
-                        float gyroZ = globalVariableManager.getGyroZ();
-                        memcpy(packet + offset, &gyroZ, 4);
-                    } break;
-
-                    case 24: {
-                        float udpDataDebugFloat0 = globalVariableManager.getUdpDataDebugFloat0();
-                        memcpy(packet + offset, &udpDataDebugFloat0, 4);
-                    } break;
-
-                    case 25: {
-                        float udpDataDebugFloat1 = globalVariableManager.getUdpDataDebugFloat1();
-                        memcpy(packet + offset, &udpDataDebugFloat1, 4);
-                    } break;
-
-                    case 26: {
-                        float udpDataDebugFloat2 = globalVariableManager.getUdpDataDebugFloat2();
-                        memcpy(packet + offset, &udpDataDebugFloat2, 4);
-                    } break;
-
-                    case 27: {
-                        float udpDataDebugFloat3 = globalVariableManager.getUdpDataDebugFloat3();
-                        memcpy(packet + offset, &udpDataDebugFloat3, 4);
-                    } break;
-
-                    case 28: {
-                        int32_t udpDataDebugInt0 = globalVariableManager.getUdpDataDebugInt0();
-                        memcpy(packet + offset, &udpDataDebugInt0, 4);
-                    } break;
-
-                    case 29: {
-                        int32_t udpDataDebugInt1 = globalVariableManager.getUdpDataDebugInt1();
-                        memcpy(packet + offset, &udpDataDebugInt1, 4);
-                    } break;
-
-                    case 30: {
-                        uint32_t udpDataDebugUint0 = globalVariableManager.getUdpDataDebugUint0();
-                        memcpy(packet + offset, &udpDataDebugUint0, 4);
-                    } break;
-
-                    case 31: {
-                        uint32_t udpDataDebugUint1 = globalVariableManager.getUdpDataDebugUint1();
-                        memcpy(packet + offset, &udpDataDebugUint1, 4);
-                    } break;
-
-                    default: {
-                    } break;
-                }
-
-                offset += 4;
+            recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(
+                packet + ownSize, sizeof(packet) - ownSize, true);
+            int sent = sendto(sock, packet, ownSize + recvBufferSize, 0,
+                              (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+            if (sent < 0) {
+                // Fucky wucky!
             }
         }
 
-        recvBufferSize = globalVariableManager.getUdpFromPeripheralBuffer(packet + offset, maxRecvBuffer, true);
-        int sent = sendto(sock, packet, offset + recvBufferSize, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-        if (sent < 0) {
-            // Fucky wucky!
-        }
-
-        recvOffset = 0;
-        ssize_t lenRecv = recvfrom(sock, recvPacket, sizeof(recvPacket), MSG_DONTWAIT, NULL, NULL);
+        // Commands: our header and values, then the frames for downstream boards.
+        struct sockaddr_in from = {};
+        socklen_t fromLen = sizeof(from);
+        ssize_t lenRecv = recvfrom(sock, recvPacket, sizeof(recvPacket), MSG_DONTWAIT,
+                                   (struct sockaddr *)&from, &fromLen);
         if (lenRecv > 0) {
-
-            memcpy(&recvHeader, recvPacket + recvOffset, 4);
-            recvOffset += 4;
-
-            std::bitset<32> recvHeaderBits(recvHeader);
-            for (int i = 0; i < 32; i++) {
-                if (recvHeaderBits[i]) {
-                    switch (i)
-                    {
-                        case 0: {
-                            float torqueSetpoint;
-                            memcpy(&torqueSetpoint, recvPacket + recvOffset, 4);
-                            globalVariableManager.setTorqueSetpoint(torqueSetpoint);
-                        } break;
-
-                        case 1: {
-                            float velocitySetpoint;
-                            memcpy(&velocitySetpoint, recvPacket + recvOffset, 4);
-                            globalVariableManager.setVelocitySetpoint(velocitySetpoint);
-                        } break;
-
-                        case 2: {
-                            float positionSetpoint;
-                            memcpy(&positionSetpoint, recvPacket + recvOffset, 4);
-                            globalVariableManager.setPositionSetpoint(positionSetpoint);
-                        } break;
-
-                        case 3: {
-                            uint32_t drivingMode;
-                            memcpy(&drivingMode, recvPacket + recvOffset, 4);
-                            globalVariableManager.setDrivingMode(drivingMode);
-                        } break;
-
-                        case 24: {
-                            float udpCommandDebugFloat0;
-                            memcpy(&udpCommandDebugFloat0, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugFloat0(udpCommandDebugFloat0);
-                        } break;
-
-                        case 25: {
-                            float udpCommandDebugFloat1;
-                            memcpy(&udpCommandDebugFloat1, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugFloat1(udpCommandDebugFloat1);
-                        } break;
-
-                        case 26: {
-                            float udpCommandDebugFloat2;
-                            memcpy(&udpCommandDebugFloat2, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugFloat2(udpCommandDebugFloat2);
-                        } break;
-
-                        case 27: {
-                            float udpCommandDebugFloat3;
-                            memcpy(&udpCommandDebugFloat3, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugFloat3(udpCommandDebugFloat3);
-                        } break;
-
-                        case 28: {
-                            int32_t udpCommandDebugInt0;
-                            memcpy(&udpCommandDebugInt0, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugInt0(udpCommandDebugInt0);
-                        } break;
-
-                        case 29: {
-                            int32_t udpCommandDebugInt1;
-                            memcpy(&udpCommandDebugInt1, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugInt1(udpCommandDebugInt1);
-                        } break;
-
-                        case 30: {
-                            uint32_t udpCommandDebugUint0;
-                            memcpy(&udpCommandDebugUint0, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugUint0(udpCommandDebugUint0);
-                        } break;
-
-                        case 31: {
-                            uint32_t udpCommandDebugUint1;
-                            memcpy(&udpCommandDebugUint1, recvPacket + recvOffset, 4);
-                            globalVariableManager.setUdpCommandDebugUint1(udpCommandDebugUint1);
-                        } break;
-
-                        default: {
-                        } break;
-                    }
-
-                    recvOffset += 4;
-                }
-            }
-
-            if (lenRecv > recvOffset) {
-                globalVariableManager.setUdpFromControllerBuffer(recvPacket + recvOffset, lenRecv - recvOffset);
+            learn_controller_ip(args->controllerIp, from);
+            int32_t used = protocol::decode_udp_command(recvPacket, (uint32_t)lenRecv);
+            if (used < 0) {
+                printf("UDP[%s]: truncated command frame (%d bytes)\n", bindIP, (int)lenRecv);
+            } else if ((uint32_t)lenRecv > (uint32_t)used) {
+                globalVariableManager.setUdpFromControllerBuffer(
+                    recvPacket + used, (uint32_t)lenRecv - (uint32_t)used);
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
     close(sock);
@@ -446,16 +243,25 @@ void tcp_as_peripheral_task(void *arg) {
         }
 
         printf("TCP[%s] client connected\n", bindIP);
+        // The TCP peer is the same upstream device that receives telemetry
+        // (PC on board 0, previous board otherwise). Learn it even if the tool
+        // never sends a UDP command.
+        learn_controller_ip(args->controllerIp, client_addr);
         close(listen_sock);
 
         uint32_t header;
         uint32_t lengthPrefix;
 
+        // TCP frames carry a chain's worth of relayed sections, so they are
+        // bounded by the GVM relay buffers (1024 B) plus one board's values.
+        // A fixed buffer keeps the size off the caller's 8 KB task stack; a VLA
+        // sized by an untrusted 16-bit prefix did not.
+        constexpr uint32_t maxFramePayload = 2048;
+        uint8_t message[maxFramePayload];
+
         constexpr uint32_t outBufCapacity = 1024;
         uint8_t outBuf[outBufCapacity];
-        uint32_t outBufOffset;
-        uint32_t outgoingLengthPrefix;
-        uint32_t inBufCommandOffset;
+
         while (1) {
             vTaskDelay(pdMS_TO_TICKS(10));
 
@@ -465,13 +271,35 @@ void tcp_as_peripheral_task(void *arg) {
                 break;
             }
 
-            if ((lengthPrefix >> 16) != 63609) {
-                printf("TCP out of sync?\n");
+            if ((lengthPrefix >> 16) != protocol::kTcpIdentifier) {
+                // Without a valid prefix there is no safe way to find the next
+                // frame boundary; reconnect instead of guessing.
+                printf("TCP[%s]: bad frame identifier, dropping connection\n", bindIP);
+                break;
+            }
+
+            const uint32_t payloadLength = lengthPrefix & 0xFFFF;
+
+            if (payloadLength > maxFramePayload) {
+                printf("TCP[%s]: frame too large (%u bytes), dropping connection\n",
+                       bindIP, (unsigned)payloadLength);
+                break;
+            }
+
+            if (payloadLength < 4) {
+                // Too short to hold a header. Consume it so the stream stays in
+                // sync, then ignore the frame.
+                uint8_t scratch[4];
+                if (payloadLength > 0 &&
+                    recv(client_sock, scratch, payloadLength, MSG_WAITALL) <= 0) {
+                    printf("TCP[%s]: client disconnected\n", bindIP);
+                    break;
+                }
+                printf("TCP[%s]: invalid header (%u bytes)\n", bindIP, (unsigned)payloadLength);
                 continue;
             }
 
-            uint8_t message[lengthPrefix & 0xFFFF];
-            len = recv(client_sock, message, sizeof(message), MSG_WAITALL);
+            len = recv(client_sock, message, payloadLength, MSG_WAITALL);
 
             if (len <= 0) {
                 printf("TCP[%s]: client disconnected (len=%d errno=%d)\n", bindIP, len, errno);
@@ -479,334 +307,44 @@ void tcp_as_peripheral_task(void *arg) {
             }
 
             if (len < 4) {
-                printf("TCP[%s]: Invalid header (len: %d < 4)\n", bindIP, len);
-                continue;
+                // MSG_WAITALL only returns short on disconnect/error.
+                printf("TCP[%s]: short frame (%d bytes), dropping connection\n", bindIP, (int)len);
+                break;
             }
 
             memcpy(&header, message, 4);
-            std::bitset<32> headerBits(header);
 
-            outBufOffset = 4;
-            outgoingLengthPrefix = (63609) << 16;
-
-            memcpy(outBuf + outBufOffset, &header, 4);
-            outBufOffset += 4;
-
-            inBufCommandOffset = 4;
-            if (headerBits[0]) {
-                for (int i = 1; i < 32; i++) {
-                    if (!headerBits[i]) { continue; }
-
-                    // printf("Setting bit %i \n", i);
-
-                    switch (i)
-                    {
-                        case 1: {
-                            float torqueSetpoint;
-                            memcpy(&torqueSetpoint, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTorqueSetpoint(torqueSetpoint);
-                        } break;
-
-                        case 2: {
-                            float torqueKp;
-                            memcpy(&torqueKp, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTorqueKp(torqueKp);
-                        } break;
-
-                        case 3: {
-                            float torqueKi;
-                            memcpy(&torqueKi, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTorqueKi(torqueKi);
-                        } break;
-
-                        case 4: {
-                        } break;
-
-                        case 5: {
-                            float torqueLimit;
-                            memcpy(&torqueLimit, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTorqueLimit(torqueLimit);
-                        } break;
-
-                        case 6: {
-                            float velocitySetpoint;
-                            memcpy(&velocitySetpoint, message + inBufCommandOffset, 4);
-                            globalVariableManager.setVelocitySetpoint(velocitySetpoint);
-                        } break;
-
-                        case 7: {
-                            float velocityKp;
-                            memcpy(&velocityKp, message + inBufCommandOffset, 4);
-                            globalVariableManager.setVelocityKp(velocityKp);
-                        } break;
-
-                        case 8: {
-                            float velocityKi;
-                            memcpy(&velocityKi, message + inBufCommandOffset, 4);
-                            globalVariableManager.setVelocityKi(velocityKi);
-                        } break;
-
-                        case 9: {
-                            float velocityKd;
-                            memcpy(&velocityKd, message + inBufCommandOffset, 4);
-                            globalVariableManager.setVelocityKd(velocityKd);
-                        } break;
-
-                        case 10: {
-                            float velocityLimit;
-                            memcpy(&velocityLimit, message + inBufCommandOffset, 4);
-                            globalVariableManager.setVelocityLimit(velocityLimit);
-                        } break;
-
-                        case 11: {
-                            float positionSetpoint;
-                            memcpy(&positionSetpoint, message + inBufCommandOffset, 4);
-                            globalVariableManager.setPositionSetpoint(positionSetpoint);
-                        } break;
-
-                        case 12: {
-                            float positionKp;
-                            memcpy(&positionKp, message + inBufCommandOffset, 4);
-                            globalVariableManager.setPositionKp(positionKp);
-                        } break;
-
-                        case 13: {
-                            float positionKi;
-                            memcpy(&positionKi, message + inBufCommandOffset, 4);
-                            globalVariableManager.setPositionKi(positionKi);
-                        } break;
-
-                        case 14: {
-                            float positionKd;
-                            memcpy(&positionKd, message + inBufCommandOffset, 4);
-                            globalVariableManager.setPositionKd(positionKd);
-                        } break;
-
-                        case 15: {
-                            uint32_t drivingMode;
-                            memcpy(&drivingMode, message + inBufCommandOffset, 4);
-                            globalVariableManager.setDrivingMode(drivingMode);
-                        } break;
-
-                        case 16: {
-                            float currentLimitBus;
-                            memcpy(&currentLimitBus, message + inBufCommandOffset, 4);
-                            globalVariableManager.setCurrentLimitBus(currentLimitBus);
-                        } break;
-
-                        case 17: {
-                            float currentLimitPhase;
-                            memcpy(&currentLimitPhase, message + inBufCommandOffset, 4);
-                            globalVariableManager.setCurrentLimitPhase(currentLimitPhase);
-                        } break;
-
-                        case 18: {
-                            uint32_t polePairs;
-                            memcpy(&polePairs, message + inBufCommandOffset, 4);
-                            globalVariableManager.setNumPolePairs(polePairs);
-                        } break;
-
-                        case 19: {
-                            uint32_t udpDataHeader;
-                            memcpy(&udpDataHeader, message + inBufCommandOffset, 4);
-                            globalVariableManager.setUdpAsPeripheralHeader(udpDataHeader);
-                        } break;
-
-                        case 20: {
-                            uint32_t errorFlags = 0;
-                            // Currently this clears the register, might be better to clear certain bits, or even set register?
-                            // memcpy(&errorFlags, message + inBufCommandOffset, 4);
-                            globalVariableManager.setErrorFlags(errorFlags);
-                        } break;
-
-                        case 21: {
-                            uint32_t ledStatus;
-                            memcpy(&ledStatus, message + inBufCommandOffset, 4);
-                            globalVariableManager.setLedStatus(ledStatus);
-                        } break;
-
-                        case 24: {
-                            float tcpCommandDebugFloat0;
-                            memcpy(&tcpCommandDebugFloat0, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugFloat0(tcpCommandDebugFloat0);
-                        } break;
-
-                        case 25: {
-                            float tcpCommandDebugFloat1;
-                            memcpy(&tcpCommandDebugFloat1, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugFloat1(tcpCommandDebugFloat1);
-                        } break;
-
-                        case 26: {
-                            float tcpCommandDebugFloat2;
-                            memcpy(&tcpCommandDebugFloat2, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugFloat2(tcpCommandDebugFloat2);
-                        } break;
-
-                        case 27: {
-                            float tcpCommandDebugFloat3;
-                            memcpy(&tcpCommandDebugFloat3, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugFloat3(tcpCommandDebugFloat3);
-                        } break;
-
-                        case 28: {
-                            int32_t tcpCommandDebugInt0;
-                            memcpy(&tcpCommandDebugInt0, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugInt0(tcpCommandDebugInt0);
-                        } break;
-
-                        case 29: {
-                            int32_t tcpCommandDebugInt1;
-                            memcpy(&tcpCommandDebugInt1, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugInt1(tcpCommandDebugInt1);
-                        } break;
-
-                        case 30: {
-                            uint32_t tcpCommandDebugUint0;
-                            memcpy(&tcpCommandDebugUint0, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugUint0(tcpCommandDebugUint0);
-                        } break;
-
-                        case 31: {
-                            uint32_t tcpCommandDebugUint1;
-                            memcpy(&tcpCommandDebugUint1, message + inBufCommandOffset, 4);
-                            globalVariableManager.setTcpCommandDebugUint1(tcpCommandDebugUint1);
-                        } break;
-
-                    default:
-                        break;
-                    }
-
-                    inBufCommandOffset += 4;
+            if (header & 1u) {
+                // Command frame: apply our fields, relay the rest downstream.
+                int32_t used = protocol::decode_tcp_command(message, (uint32_t)len);
+                if (used < 0) {
+                    printf("TCP[%s]: truncated command frame (%d bytes)\n", bindIP, (int)len);
+                    continue;
                 }
-
+                globalVariableManager.setTcpFromControllerBuffer(
+                    message + used, (uint32_t)len - (uint32_t)used);
             } else {
-                for (int i = 1; i < 32; i++) {
-                    if (!headerBits[i]) { continue; }
-
-                    // printf("Reading bit %i \n", i);
-
-                    switch (i)
-                    {
-                        case 1: {
-                            float busVoltage = globalVariableManager.getBusVoltage();
-                            memcpy(outBuf + outBufOffset, &busVoltage, 4);
-                        } break;
-
-                        case 2: {
-                            float busCurrent = globalVariableManager.getBusCurrent();
-                            memcpy(outBuf + outBufOffset, &busCurrent, 4);
-                        } break;
-
-                        case 4: {
-                            uint32_t buttonStatus = globalVariableManager.getButtonStatus();
-                            memcpy(outBuf + outBufOffset, &buttonStatus, 4);
-                        } break;
-
-                        case 5: {
-                            float currentLimitBus = globalVariableManager.getCurrentLimitBus();
-                            memcpy(outBuf + outBufOffset, &currentLimitBus, 4);
-                        } break;
-
-                        case 6: {
-                            float currentLimitPhase = globalVariableManager.getCurrentLimitPhase();
-                            memcpy(outBuf + outBufOffset, &currentLimitPhase, 4);
-                        } break;
-
-                        case 7: {
-                            uint32_t boardState = globalVariableManager.getBoardState();
-                            memcpy(outBuf + outBufOffset, &boardState, 4);
-                        } break;
-
-                        case 8: {
-                            uint32_t drivingMode = globalVariableManager.getDrivingMode();
-                            memcpy(outBuf + outBufOffset, &drivingMode, 4);
-                        } break;
-
-                        case 9: {
-                            uint32_t numPolePairs = globalVariableManager.getNumPolePairs();
-                            memcpy(outBuf + outBufOffset, &numPolePairs, 4);
-                        } break;
-
-                        case 10: {
-                            float phaseRMSVoltage = globalVariableManager.getPhaseRMSVoltage();
-                            memcpy(outBuf + outBufOffset, &phaseRMSVoltage, 4);
-                        } break;
-
-                        case 11: {
-                            uint32_t errorFlags = globalVariableManager.getErrorFlags();
-                            memcpy(outBuf + outBufOffset, &errorFlags, 4);
-                        } break;
-
-                        case 12: {
-                            float temperature = globalVariableManager.getTemperature();
-                            memcpy(outBuf + outBufOffset, &temperature, 4);
-                        } break;
-
-                        case 24: {
-                            float tcpDataDebugFloat0 = globalVariableManager.getTcpDataDebugFloat0();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat0, 4);
-                        } break;
-
-                        case 25: {
-                            float tcpDataDebugFloat1 = globalVariableManager.getTcpDataDebugFloat1();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat1, 4);
-                        } break;
-
-                        case 26: {
-                            float tcpDataDebugFloat2 = globalVariableManager.getTcpDataDebugFloat2();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat2, 4);
-                        } break;
-
-                        case 27: {
-                            float tcpDataDebugFloat3 = globalVariableManager.getTcpDataDebugFloat3();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugFloat3, 4);
-                        } break;
-
-                        case 28: {
-                            int32_t tcpDataDebugInt0 = globalVariableManager.getTcpDataDebugInt0();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugInt0, 4);
-                        } break;
-
-                        case 29: {
-                            int32_t tcpDataDebugInt1 = globalVariableManager.getTcpDataDebugInt1();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugInt1, 4);
-                        } break;
-
-                        case 30: {
-                            uint32_t tcpDataDebugUint0 = globalVariableManager.getTcpDataDebugUint0();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugUint0, 4);
-                        } break;
-
-                        case 31: {
-                            uint32_t tcpDataDebugUint1 = globalVariableManager.getTcpDataDebugUint1();
-                            memcpy(outBuf + outBufOffset, &tcpDataDebugUint1, 4);
-                        } break;
-
-                    default:
-                        break;
-                    }
-
-                    outBufOffset += 4;
-                }
-
+                // Data request: the header only selects fields and carries no
+                // values itself, so everything after it is relay data.
+                globalVariableManager.setTcpFromControllerBuffer(message + 4, (uint32_t)len - 4u);
             }
 
-            // printf("Sending %li bytes.\n", len - inBufCommandOffset);
-            globalVariableManager.setTcpFromControllerBuffer(message + inBufCommandOffset, len - inBufCommandOffset);
+            // Echo the request header and fill in the fields it selects.
+            uint32_t payloadSize = protocol::encode_tcp_data(header, outBuf + 4, outBufCapacity - 4);
+            if (payloadSize == 0) {
+                printf("TCP[%s]: response does not fit in %u bytes\n", bindIP,
+                       (unsigned)(outBufCapacity - 4));
+                continue;
+            }
 
-            auto newLenght = globalVariableManager.getTcpFromPeripheralBuffer(outBuf + outBufOffset, outBufCapacity - outBufOffset, true);
+            uint32_t relayed = globalVariableManager.getTcpFromPeripheralBuffer(
+                outBuf + 4 + payloadSize, outBufCapacity - 4 - payloadSize, true);
 
-            outgoingLengthPrefix += outBufOffset + newLenght - 4;
+            uint32_t outgoingLengthPrefix =
+                (protocol::kTcpIdentifier << 16) | (payloadSize + relayed);
             memcpy(outBuf, &outgoingLengthPrefix, 4);
 
-            int sent = send(client_sock, outBuf, outBufOffset + newLenght, 0);
-            // printf("Sent %d bytes of data. Newlength: %lu\n", sent, newLenght);
-            for (int ixOutBuf = 0; ixOutBuf < outBufOffset + newLenght; ixOutBuf++) {
-                // printf("%u, ", outBuf[ixOutBuf]);
-            }
-            // printf("\n");
-
+            int sent = send(client_sock, outBuf, 4 + payloadSize + relayed, 0);
             if (sent < 0) {
                 printf("TCP[%s]: send() errno=%d\n", bindIP, errno);
                 break;
@@ -915,7 +453,7 @@ void tcp_as_controller_task(void *arg) {
 EthernetTask::EthernetTask(EthernetTaskConfig &config)
     : _config(config),
       _boardPosition(-1),
-      _eth0(config.cW5500_0_CS, config.cW5500_0_INT, 0),
+      _eth0(config.cW5500_0_CS, config.cW5500_0_INT, 0, config.cDhcpServer),
       _eth1(config.cW5500_1_CS, config.cW5500_1_INT, 1) {
 
     gpio_set_level(config.cW5500_0_CS, 1);
@@ -965,6 +503,13 @@ void EthernetTask::begin() {
 
     printf("ETH: Configured IPs — ETH_0=%s  ETH_1=%s\n", _eth0_ip, _eth1_ip);
 
+    // Only the board facing the PC serves leases. Downstream ETH_0 ports face
+    // another board's ETH_1, which uses a static address and no DHCP client.
+    if (_config.cDhcpServer && _boardPosition == 0) {
+        esp_err_t dhcpErr = _eth0.start_dhcp_server();
+        printf("ETH: DHCP server on ETH_0: %s\n", esp_err_to_name(dhcpErr));
+    }
+
     // -------------------------------------------------------
     // Phase 3: Start discovery responder on ETH_1 (downstream, faces next board)
     // -------------------------------------------------------
@@ -995,39 +540,21 @@ void EthernetTask::begin() {
     // -------------------------------------------------------
     // ETH_0 = upstream (faces PC) → UDP peripheral (telemetry), TCP server (PC connects to us)
     // ETH_1 = downstream (faces next board) → UDP controller (relay), TCP client (we connect to next board)
-    _TaskConfigUDP udpConfigController {
-        .bindIP = _eth0_ip,
-        .destionationIP = _controllerDestIP,
-        .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
-        .ifKey = "ETH_0",
-    };
-
-    _TaskConfigUDP udpConfigPeripheral {
-        .bindIP = _eth1_ip,
-        .destionationIP = _peripheralDestIP,
-        .UDP_DESTINATION_PORT = _config.cUDP_DESTINATION_PORT,
-        .ifKey = "ETH_1",
-    };
-
-    // TCP server on ETH_0 — PC connects TO us
-    _TaskConfigTCP tcpConfigServer {
-        .bindIP = _eth0_ip,
-        .TCP_PORT = _config.cTCP_LISTEN_PORT,
-        .ifKey = "ETH_0",
-    };
-
-    // TCP client on ETH_1 — we connect TO the next board's server (ETH_0)
-    _TaskConfigTCP tcpConfigClient {
-        .bindIP = _peripheralDestIP,      // next board's ETH_0 IP (server)
-        .TCP_PORT = _config.cTCP_LISTEN_PORT,
-        .ifKey = "ETH_1",
-    };
+    // Stored on the object (not the stack) because the tasks keep these alive.
+    // The peripheral task lives on ETH_0 and talks upstream (controller/PC); the
+    // controller task lives on ETH_1 and talks downstream (next board).
+    _udpConfigPeripheral = { _eth0_ip, _controllerDestIP,
+                             _config.cUDP_DESTINATION_PORT, "ETH_0", &_controllerIp };
+    _udpConfigController = { _eth1_ip, _peripheralDestIP,
+                             _config.cUDP_DESTINATION_PORT, "ETH_1", &_controllerIp };
+    _tcpConfigServer = { _eth0_ip, _config.cTCP_LISTEN_PORT, "ETH_0", &_controllerIp };
+    _tcpConfigClient = { _peripheralDestIP, _config.cTCP_LISTEN_PORT, "ETH_1", &_controllerIp };
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    xTaskCreatePinnedToCore(udp_as_peripheral_task, "udp_eth0", 8192, &udpConfigController, 12, nullptr, 0);
-    xTaskCreatePinnedToCore(udp_as_controller_task, "udp_eth1", 8192, &udpConfigPeripheral, 12, nullptr, 0);
-    xTaskCreatePinnedToCore(tcp_as_peripheral_task, "tcp_srv", 8192, &tcpConfigServer, 12, nullptr, 0);
-    xTaskCreatePinnedToCore(tcp_as_controller_task, "tcp_cli", 8192, &tcpConfigClient, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(udp_as_peripheral_task, "udp_eth0", 8192, &_udpConfigPeripheral, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(udp_as_controller_task, "udp_eth1", 8192, &_udpConfigController, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(tcp_as_peripheral_task, "tcp_srv", 12288, &_tcpConfigServer, 12, nullptr, 0);
+    xTaskCreatePinnedToCore(tcp_as_controller_task, "tcp_cli", 8192, &_tcpConfigClient, 12, nullptr, 0);
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     logLinkStatus("begin");
@@ -1053,10 +580,21 @@ void EthernetTask::linkMonitorTask(void *arg) {
 
         bool link0 = self->isLinkUp(0);
         bool link1 = self->isLinkUp(1);
-        if (link0 != prev0 || link1 != prev1) {
+        const bool changed = (link0 != prev0 || link1 != prev1);
+        if (changed) {
             self->logLinkStatus("change");
             prev0 = link0;
             prev1 = link1;
+        }
+
+        // esp_netif_up() does not start the DHCP server, so a board that booted
+        // without a cable (or lost it and came back) has to be re-armed here.
+        // start_dhcp_server() is a no-op while the server is already running.
+        if (link0 && self->_config.cDhcpServer && self->_boardPosition == 0) {
+            esp_err_t err = self->_eth0.start_dhcp_server();
+            if (err != ESP_OK && changed) {
+                printf("ETH: DHCP server start failed: %s\n", esp_err_to_name(err));
+            }
         }
     }
 }

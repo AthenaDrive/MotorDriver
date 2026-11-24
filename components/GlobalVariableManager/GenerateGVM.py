@@ -23,6 +23,7 @@ with open(f"{path}/Variables.txt", "r") as variableFile:
             variables = activeArr
             activeArr = []
             continue
+        if (line.startswith("#")): continue
 
         line = line.replace(" ", "")
         var0, var1, var2 = line.split(",")

@@ -28,8 +28,15 @@ float, busVoltage, 0
 float, busCurrent, 0
 float, temperature, 0
 uint32_t, drivingMode, 0
-uint32_t, currentLimitPhase, 1000
-uint32_t, currentLimitBus, 5000
+float, currentLimitPhase, 1000.0f
+float, currentLimitBus, 5000.0f
+
+# Regenerative braking / brake chopper thresholds (see CommunicationProtocol.csv
+# TCP command bits 21-24). Stored only; no consumer yet.
+float, regenCurrentStart, 0.0f
+float, regenCurrentEnd, 0.0f
+float, busVoltageStart, 0.0f
+float, busVoltageEnd, 0.0f
 
 float, phaseRMSVoltage, 0.0f
 float, Ia, 0.0f

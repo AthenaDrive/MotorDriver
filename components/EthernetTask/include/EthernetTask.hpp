@@ -1,6 +1,7 @@
 #pragma once
 
-#include "CommunicationConfig.hpp"
+#include <atomic>
+
 #include "driver/gpio.h"
 #include "W5500.hpp"
 
@@ -22,6 +23,10 @@ struct EthernetTaskConfig {
     bool      cUseAutoIP;
     int       cDiscRetries;
     int       cDiscTimeoutMs;
+
+    // Serve DHCP to the device on ETH_0 (normally the PC). Only board 0 does
+    // this; the daisy-chain links stay static.
+    bool      cDhcpServer;
 };
 
 struct _TaskConfigUDP {
@@ -29,12 +34,16 @@ struct _TaskConfigUDP {
     const char* destionationIP;
     uint32_t UDP_DESTINATION_PORT;
     const char* ifKey;
+    // Upstream peer learned from traffic (network byte order, 0 = none). Used
+    // instead of destionationIP once known.
+    std::atomic_uint32_t* controllerIp;
 };
 
 struct _TaskConfigTCP {
     const char* bindIP;
     uint32_t TCP_PORT;
     const char* ifKey;
+    std::atomic_uint32_t* controllerIp;
 };
 
 class EthernetTask {
@@ -57,6 +66,18 @@ private:
     char _eth1_ip[24];
     char _controllerDestIP[24];
     char _peripheralDestIP[24];
+
+    // Task arguments outlive begin(); these used to be stack locals passed by
+    // pointer to tasks that kept reading them after begin() returned.
+    _TaskConfigUDP _udpConfigPeripheral{};
+    _TaskConfigUDP _udpConfigController{};
+    _TaskConfigTCP _tcpConfigServer{};
+    _TaskConfigTCP _tcpConfigClient{};
+
+    // Address of whatever is upstream of us (PC on board 0, previous board's
+    // ETH_1 otherwise), learned from the first UDP packet or TCP connection.
+    // The static destination IP is the fallback until then.
+    std::atomic_uint32_t _controllerIp{0};
 
     static void linkMonitorTask(void *arg);
 };

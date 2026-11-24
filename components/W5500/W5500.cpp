@@ -8,10 +8,11 @@
 
 static const char *TAG = "W5500";
 
-W5500::W5500(uint8_t cs_gpio, int int_gpio, uint8_t eth_idx)
+W5500::W5500(uint8_t cs_gpio, int int_gpio, uint8_t eth_idx, bool dhcp_server)
     : _cs_gpio(cs_gpio)
     , _int_gpio(int_gpio)
     , _eth_idx(eth_idx)
+    , _dhcp_server(dhcp_server)
     , _initialized(false)
     , _eth_handle(nullptr)
     , _mac(nullptr)
@@ -131,6 +132,17 @@ esp_err_t W5500::init() {
         base_cfg.if_key = key_buf;
         base_cfg.if_desc = desc_buf;
 
+        if (_dhcp_server) {
+            // This is a swap, not an addition: ESP_NETIF_INHERENT_DEFAULT_ETH()
+            // sets ESP_NETIF_DHCP_CLIENT, and esp_netif_new() fails outright
+            // ("DHCP server and client cannot be configured together") if both
+            // flags are present -- which aborts the ESP_ERROR_CHECK on init().
+            // The server object is allocated here; it is started later, once the
+            // final static IP has been applied.
+            base_cfg.flags = (esp_netif_flags_t)((base_cfg.flags & ~ESP_NETIF_DHCP_CLIENT) |
+                                                 ESP_NETIF_DHCP_SERVER);
+        }
+
         esp_netif_config_t cfg = {
             .base = &base_cfg,
             .driver = NULL,
@@ -143,6 +155,16 @@ esp_err_t W5500::init() {
         cleanup(_mac, _phy, _eth_handle, _glue, nullptr);
         _mac = nullptr; _phy = nullptr; _eth_handle = nullptr; _glue = nullptr;
         return ESP_FAIL;
+    }
+
+    if (_dhcp_server) {
+        // esp_netif_action_start() (fired by esp_eth_start below) auto-starts a
+        // DHCP server that is still in ESP_NETIF_DHCP_INIT, using the netif's
+        // current address -- which is 0.0.0.0 here, so the start fails and logs
+        // "DHCP server cannot be started" on every boot. Stopping it first pins
+        // the state to STOPPED, which is also what esp_netif_set_ip_info()
+        // requires, so the final address can be applied later.
+        esp_netif_dhcps_stop(_netif);
     }
 
     ret = esp_netif_attach(_netif, _glue);
@@ -247,10 +269,55 @@ esp_err_t W5500::set_static_ip(const char *ip, const char *netmask, const char *
     }
 
     esp_netif_dhcpc_stop(_netif);
+    // esp_netif_set_ip_info() refuses to run while a DHCP server is active
+    // (ESP_ERR_ESP_NETIF_DHCP_NOT_STOPPED), and the link-up path may have
+    // auto-started one.
+    esp_netif_dhcps_stop(_netif);
 
     esp_netif_ip_info_t ip_info = {};
     ESP_ERROR_CHECK(esp_netif_str_to_ip4(ip, &ip_info.ip));
     ESP_ERROR_CHECK(esp_netif_str_to_ip4(netmask, &ip_info.netmask));
     ESP_ERROR_CHECK(esp_netif_str_to_ip4(gw, &ip_info.gw));
     return esp_netif_set_ip_info(_netif, &ip_info);
+}
+
+esp_err_t W5500::start_dhcp_server() {
+    if (!_netif || !_dhcp_server) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Idempotent: the link monitor calls this after every link-up.
+    esp_netif_dhcp_status_t status = ESP_NETIF_DHCP_INIT;
+    esp_netif_dhcps_get_status(_netif, &status);
+    if (status == ESP_NETIF_DHCP_STARTED) {
+        return ESP_OK;
+    }
+
+    // Options can only be changed while the server is stopped, and the link-up
+    // path may already have auto-started it.
+    esp_netif_dhcps_stop(_netif);
+
+    // Point-to-point link: no gateway, so do not hand the peer a default
+    // route through this board.
+    uint8_t offer_router = 0;
+    esp_netif_dhcps_option(_netif, ESP_NETIF_OP_SET,
+                           ESP_NETIF_ROUTER_SOLICITATION_ADDRESS,
+                           &offer_router, sizeof(offer_router));
+
+    esp_err_t err = esp_netif_dhcps_start(_netif);
+    if (err == ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
+        err = ESP_OK;
+    }
+    return err;
+}
+
+esp_err_t W5500::stop_dhcp_server() {
+    if (!_netif || !_dhcp_server) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = esp_netif_dhcps_stop(_netif);
+    if (err == ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+        err = ESP_OK;
+    }
+    return err;
 }

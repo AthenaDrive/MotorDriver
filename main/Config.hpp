@@ -37,11 +37,14 @@
 // W5500 Ethernet Configuration
 // ============================================================
 // With auto-IP enabled, static IPs are ignored and each board
-// auto-discovers its position in the daisy chain:
-//   PC            = 192.168.0.1
-//   Board 0: ETH_1=192.168.0.2  ETH_0=192.168.0.3
-//   Board 1: ETH_1=192.168.0.4  ETH_0=192.168.0.5
-//   Board N: ETH_1=192.168.0.(N*2+2)  ETH_0=192.168.0.(N*2+3)
+// auto-discovers its position in the daisy chain.
+// Board 0 also serves DHCP on ETH_0, so the PC can use
+// "obtain an IP automatically" (it receives 192.168.0.3+).
+// A PC at 192.168.0.1 still works.
+//   PC            = DHCP (192.168.0.3+), or 192.168.0.1 static
+//   Board 0: ETH_0=192.168.0.2  ETH_1=192.168.0.3
+//   Board 1: ETH_0=192.168.0.4  ETH_1=192.168.0.5
+//   Board N: ETH_0=192.168.0.(N*2+2)  ETH_1=192.168.0.(N*2+3)
 // ============================================================
 #define W5500_NETMASK   "255.255.255.0"
 #define W5500_GW        "192.168.0.1"
@@ -49,6 +52,13 @@
 #define W5500_USE_AUTO_IP   1       // 1 = auto-IP, 0 = static fallback
 #define DISC_RETRIES        6       // number of discovery attempts
 #define DISC_TIMEOUT_MS     500     // ms per attempt
+
+// Board 0 serves DHCP on ETH_0 so the PC can stay on "obtain an IP
+// automatically"; the daisy-chain links remain static. esp_netif derives the
+// lease pool from the interface's own IP, so 192.168.0.2 hands out 192.168.0.3
+// and up. The board sends telemetry to whichever address it learns from the
+// first packet, so the PC does not need a fixed address.
+#define W5500_DHCP_SERVER   1       // 1 = serve DHCP to the PC on ETH_0
 
 #define TCP_LISTEN_PORT 5001
 #define UDP_DEST_PORT   5000
