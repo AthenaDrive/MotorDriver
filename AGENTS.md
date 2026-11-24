@@ -162,10 +162,12 @@ new work off core 1 and avoid unpinned tasks (they can migrate there).
 The ESP32-S3 has a **shared flash instruction cache**. This project runs with
 `CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y`; at 16 KB the FOC and Ethernet code
 thrashed each other and the loop was ~2.6× slower. Do not reduce it without
-re-measuring. At the 100 µs period the loop is ~32 µs average and ~47 µs max
-with `FOC_PROFILE 1`; the profiler adds ~6-7 µs of `esp_timer_get_time()` calls,
-so a normal build is roughly 25-26 µs average. Phase currents come from the ADC
-continuous/DMA ring buffer, which the FOC loop drains once per iteration.
+re-measuring. The last `esp_timer_get_time()`-based measurement was ~32 µs
+average and ~47 µs max with `FOC_PROFILE 1`; the profiler then added ~6-7 µs, so
+a normal build was roughly 25-26 µs average. The profiler now uses cycle counts
+and the encoder transfer is overlapped with the ADC snapshot and GVM loads, so
+re-measure after those changes. Phase currents are accumulated by the ADC
+continuous completion callback; the FOC loop only takes a snapshot.
 
 ### Boot sequence
 
@@ -599,9 +601,10 @@ zero-current offset during the startup `CURRENT` phase and subtracts it.
 `ADCContinuous::init()` in `FOCTask` is configured as `0.001f, 50.0f, 1.65f` to
 match the board-v3 shunt, amplifier gain, and mid-supply reference. It runs ADC1
 in continuous/DMA mode at 71 kHz total (about 23.8 kHz per phase), with 48-byte
-DMA frames and a 1 KB pool flushed from the oldest end if the FOC loop ever falls
-behind. `read_voltage_all()` drains the pool once per FOC iteration and returns,
-per channel, the mean of the last four samples.
+DMA frames and a 1 KB pool flushed from the oldest end if nothing drains it. The
+DMA completion callback (`ADCContinuous::_onConvDone`) pushes each frame into the
+per-channel history on core 0; `read_voltage_all()` on core 1 only takes a
+seqlock snapshot and returns, per channel, the mean of the last four samples.
 
 That averaging is not cosmetic. At 24 V and 30 kHz a 16 µH motor carries roughly
 5 A peak-to-peak of switching ripple, and the ADC is not synchronised to the
@@ -622,14 +625,15 @@ raw→mV table once, and the hot path interpolates it (a few mV worst-case error
 well under 0.1 A at 50 mV/A).
 
 The ADC continuous DMA ISR is allocated when `ADCContinuous::init()` creates the
-driver from `app_main`, so it runs on **core 0**. The FOC task drains the ring
-buffer on **core 1**. Keep it that way: moving the ISR to core 1 would make it
-preempt the control loop. `refresh()`, `accumulate()`, `push_sample()`,
-`averaged_raw()`, `read_voltage_all()` and the LUT interpolation are placed in
-IRAM so core 0's Ethernet traffic cannot evict them from the shared flash
-I-cache. The IDF `adc_continuous_read()` and `xRingbufferReceiveUpTo()` are still
-flash-resident; `CONFIG_RINGBUF_IN_IRAM=y` would move the latter into IRAM if the
-remaining max spikes matter.
+driver from `app_main`, so it runs on **core 0**. The callback accumulates the
+per-channel history there; the FOC task on **core 1** only reads the published
+snapshot. Keep it that way: moving the ISR to core 1 would make it preempt the
+control loop. `_onConvDone()`, `accumulate()`, `push_sample()`, `averaged_raw()`,
+`read_voltage_all()` and the LUT interpolation are placed in IRAM so core 0's
+Ethernet traffic cannot evict them from the shared flash I-cache. The
+cross-core history is published with a seqlock (`_seq`), so the reader retries
+if the callback updated it mid-snapshot. The IDF `adc_continuous_read()` is
+still flash-resident but is no longer called from the FOC loop.
 
 ---
 
@@ -648,14 +652,13 @@ The actionable checklist for the next firmware/PCB iteration lives in `TODO.md`.
 - **Relay buffers cap the chain:** the four GVM buffers are 1024 B each, so a
   frame longer than that is truncated when relayed. With one 4-byte-per-field
   section per board the practical chain length is roughly 8-10 boards.
-- **FOC loop timing:** runs at a 100 µs period (10 kHz). With the 32 KB I-cache
-  and the IRAM pass, the profiled loop is ~32 µs average / ~47 µs max. The
-  profiler itself costs ~6-7 µs (7 intermediate `esp_timer_get_time()` calls at
-  ~0.85 µs), so `FOC_PROFILE 0` gives roughly 25-26 µs average. The 100 µs period
-  leaves ~50 µs of headroom at the observed max; watch for overruns when
-  Ethernet is active. Startup delays are loop-counted and now total ~2.4 s; the
-  current-loop PI takes a measured `dt`, so its gains are per-second and do not
-  change with the loop period.
+- **FOC loop timing:** runs at a 100 µs period (10 kHz). The last
+  `esp_timer_get_time()`-based measurement was ~32 µs average / ~47 µs max; after
+  the cycle-count profiler, encoder/ADC overlap and ADC callback changes,
+  re-measure. The 100 µs period leaves headroom at the observed max; watch for
+  overruns when Ethernet is active. Startup delays are loop-counted and now total
+  ~2.4 s; the current-loop PI takes a measured `dt`, so its gains are per-second
+  and do not change with the loop period.
 - **State estimation:** `StateEstimation` is a type-2 tracking PLL on the wrapped
   encoder angle (`cBandwidthHz` default 100 Hz, damping 1.0), not a filtered
   derivative. Velocity is the PLL state, so it has no steady-state lag at
@@ -722,14 +725,19 @@ Match the surrounding code rather than imposing a new style.
   bounded `wrapAngle` helpers in `FOCTask.cpp` and `fastSinCos` in `Controller.cpp`.
 - **Measure before/after hot-path changes.** `FOCTask.cpp` has a compile-time
   `FOC_PROFILE` macro that prints per-stage avg/max timings plus core ID and
-  effective MHz over UART. It must be `0` for normal builds. At the 100 µs period
-  the profiled loop is ~32 µs average / ~47 µs max: encoder ~15 µs, state
-  ~3-4 µs, ADC ~3-5 µs, ctrl/pwm ~2 µs. The profiler itself adds ~6-7 µs, and
-  maxima are typically 2-3x the averages.
+  effective MHz over UART. It must be `0` for normal builds. Stage timestamps
+  use `esp_cpu_get_cycle_count()` and are converted to microseconds at print
+  time, so the instrumentation is nearly free. The last timer-based run was
+  ~32 µs average / ~47 µs max: encoder ~15 µs, state ~3-4 µs, ADC ~3-5 µs,
+  ctrl/pwm ~2 µs. The encoder transfer is now overlapped with the ADC snapshot
+  and GVM loads, so the `encW` stage is only the part that does not fit under
+  that work.
 - **The core-1 hot path is in IRAM.** `FOCTask::update`, `Controller::update` and
   its helpers, `PI_Reg::update`/`track`, `CascadingPID::compute`, `PID_Reg::update`/`reset`,
   `LowpassFilter::update`, `StateEstimation::estimate`, `MCPWMDriver::set_duty`,
-  `AS5047P::pipeline_read_angle`/`_transfer`, and `SPIBase::polling_transmit` use
+  `AS5047P::pipeline_start_read`/`pipeline_finish_read`/`_transfer_start`/`_transfer_finish`,
+  `SPIBase::polling_start`/`polling_end`, and the ADC completion callback path
+  (`ADCContinuous::_onConvDone`/`accumulate`/`push_sample`/`read_voltage_all`) use
   `IRAM_ATTR`. On the IDF side, `CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y`,
   `CONFIG_FREERTOS_IN_IRAM=y` (required by `CONFIG_SPI_MASTER_IN_IRAM=y`),
   `CONFIG_SPI_MASTER_IN_IRAM=y`, `CONFIG_RINGBUF_IN_IRAM=y`, and
