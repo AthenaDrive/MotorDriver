@@ -28,6 +28,11 @@ public:
 
     esp_err_t transmit(spi_device_handle_t dev, spi_transaction_t *trans);
     esp_err_t polling_transmit(spi_device_handle_t dev, spi_transaction_t *trans);
+    // Split polling transaction. polling_start() sets the transaction up and
+    // starts the hardware, polling_end() waits for it to finish. Use this to
+    // overlap a transfer with work that does not depend on its result.
+    esp_err_t polling_start(spi_device_handle_t dev, spi_transaction_t *trans);
+    esp_err_t polling_end(spi_device_handle_t dev);
 
     esp_err_t write_read(spi_device_handle_t dev,
                          const uint8_t *write_buf, size_t write_len,

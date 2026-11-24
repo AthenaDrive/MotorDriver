@@ -147,6 +147,14 @@ IRAM_ATTR esp_err_t SPIBase::polling_transmit(spi_device_handle_t dev, spi_trans
     return spi_device_polling_transmit(dev, trans);
 }
 
+IRAM_ATTR esp_err_t SPIBase::polling_start(spi_device_handle_t dev, spi_transaction_t *trans) {
+    return spi_device_polling_start(dev, trans, portMAX_DELAY);
+}
+
+IRAM_ATTR esp_err_t SPIBase::polling_end(spi_device_handle_t dev) {
+    return spi_device_polling_end(dev, portMAX_DELAY);
+}
+
 esp_err_t SPIBase::write_read(spi_device_handle_t dev,
                               const uint8_t *write_buf, size_t write_len,
                               uint8_t *read_buf, size_t read_len) {
